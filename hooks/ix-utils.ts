@@ -129,6 +129,12 @@ function redact(s: string): string {
     .replace(new RegExp(homedir(), "g"), "~");
 }
 
+/** Returns true if the message/stderr indicates a missing Pro feature (not an error). */
+function isProFeatureMessage(message: string, stderr?: string): boolean {
+  const combined = `${message} ${stderr ?? ""}`;
+  return /requires Ix Pro|Install @ix\/pro|is a Ix\/pro feature|premium features/i.test(combined);
+}
+
 /** Capture and report an error asynchronously. Fire-and-forget. */
 export function captureErrorAsync(
   type: string,
@@ -138,6 +144,9 @@ export function captureErrorAsync(
   command?: string,
   stderr?: string,
 ): void {
+  // Skip expected Pro feature messages — these are not errors
+  if (isProFeatureMessage(message, stderr)) return;
+
   // Fire in background — never block the hook
   void (async () => {
     try {
