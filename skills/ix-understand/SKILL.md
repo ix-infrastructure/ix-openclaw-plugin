@@ -5,7 +5,7 @@ metadata:
   { "openclaw": { "requires": { "bins": ["ix"] } } }
 ---
 
-Check `command -v ix` first. If unavailable, stop and say so.
+Run `command -v ix` to verify ix is on PATH. Never use tilde paths (`~/...`) or absolute paths — always invoke `ix` directly via PATH. If not found, stop and say so.
 
 ## Goal
 
@@ -15,14 +15,14 @@ Build an accurate mental model of the target's structure, purpose, and key compo
 
 Run in parallel:
 ```bash
-ix subsystems --format json
-ix rank --by dependents --kind class --top 10 --exclude-path test --format json
-ix rank --by callers   --kind function --top 10 --exclude-path test --format json
+timeout 60s ix subsystems --format json
+timeout 60s ix rank --by dependents --kind class --top 10 --exclude-path test --format json
+timeout 60s ix rank --by callers   --kind function --top 10 --exclude-path test --format json
 ```
 
 If `$ARGUMENTS` is non-empty, also run:
 ```bash
-ix locate "$ARGUMENTS" --limit 5 --format json
+timeout 60s ix locate "$ARGUMENTS" --limit 5 --format json
 ```
 
 Extract from subsystems: region names, file counts, cohesion scores.
@@ -34,7 +34,7 @@ Extract from rank: the 3–5 most structurally central classes and functions.
 
 Pick the **2–4 most central or unclear** components from Phase 1 results. Run in parallel:
 ```bash
-ix overview <component> --format json
+timeout 60s ix overview <component> --format json
 ```
 
 Do NOT run `ix explain` yet. `ix overview` is cheaper and sufficient for most components.
@@ -45,7 +45,7 @@ Do NOT run `ix explain` yet. `ix overview` is cheaper and sufficient for most co
 
 For at most **2** components still unclear after Phase 2:
 ```bash
-ix explain <component> --format json
+timeout 60s ix explain <component> --format json
 ```
 
 **Hard limits:** No `ix read`. No `ix map`. No `ix trace`. This skill never reads source code.

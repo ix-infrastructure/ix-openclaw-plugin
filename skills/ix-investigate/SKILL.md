@@ -5,7 +5,7 @@ metadata:
   { "openclaw": { "requires": { "bins": ["ix"] } } }
 ---
 
-Check `command -v ix` first. If unavailable, use Grep + Read as fallback.
+Run `command -v ix` to verify ix is on PATH. Never use tilde paths (`~/...`) or absolute paths — always invoke `ix` directly via PATH. If not found, fall back to Grep + Read.
 
 ## Goal
 
@@ -14,7 +14,7 @@ Answer: *what is this, how does it connect, and what's the execution path?* Stop
 ## Phase 1 — Locate (always)
 
 ```bash
-ix locate $ARGUMENTS --limit 5 --format json
+timeout 60s ix locate $ARGUMENTS --limit 5 --format json
 ```
 
 If multiple matches: use `--kind`, `--path`, or `--pick N` to resolve. Do not proceed until the entity is unambiguous.
@@ -24,7 +24,7 @@ If `ix locate` returns nothing: try `ix text $ARGUMENTS --limit 10 --format json
 ## Phase 2 — Explain (always)
 
 ```bash
-ix explain <resolved-symbol> --format json
+timeout 60s ix explain <resolved-symbol> --format json
 ```
 
 Extract: role, importance, caller count, callee count, confidence score.
@@ -39,10 +39,10 @@ Run only the directions you need — not both by default:
 
 ```bash
 # If "who uses this" matters:
-ix callers <symbol> --limit 15 --format json
+timeout 60s ix callers <symbol> --limit 15 --format json
 
 # If "what does this do internally" matters:
-ix callees <symbol> --limit 15 --format json
+timeout 60s ix callees <symbol> --limit 15 --format json
 ```
 
 **Stop if:** you now know who uses it and what it depends on.
@@ -50,7 +50,7 @@ ix callees <symbol> --limit 15 --format json
 ## Phase 4 — Trace (run only if execution flow is unclear)
 
 ```bash
-ix trace <symbol> --format json
+timeout 60s ix trace <symbol> --format json
 ```
 
 One trace only. Pick the most representative direction (`--upstream` or `--downstream`) based on the question.
@@ -61,7 +61,7 @@ One trace only. Pick the most representative direction (`--upstream` or `--downs
 
 Only if the above steps leave a specific implementation question unanswered:
 ```bash
-ix read <symbol> --format json
+timeout 60s ix read <symbol> --format json
 ```
 
 Read **the symbol only** — never the full file. If the symbol is a class, read the specific method suspected.

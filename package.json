@@ -1,0 +1,41 @@
+{
+  "name": "ix-openclaw-plugin",
+  "version": "2.3.0",
+  "description": "Ix Memory plugin for OpenClaw — graph-first reasoning layer",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md",
+    "AGENTS.md",
+    "SOUL.md",
+    "agents",
+    "skills",
+    "hooks",
+    "install.sh",
+    "install.ps1",
+    "test-local.sh"
+  ],
+  "peerDependencies": {
+    "openclaw": ">=2026.5.17"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "openclaw": "latest",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {},
+  "openclaw": {
+    "extensions": [
+      "./dist/plugins/ix-plugin.js"
+    ]
+  }
+}

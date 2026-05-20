@@ -1,0 +1,59 @@
+{
+  "captured_at": "2026-05-20",
+  "surface": "openclaw",
+  "source_of_truth": "plugins/ix-plugin.ts",
+  "registered_events": [
+    "before_prompt_build",
+    "before_tool_call",
+    "after_tool_call",
+    "session_end"
+  ],
+  "ambient_behaviors": [
+    {
+      "id": "session-briefing",
+      "status": "implemented",
+      "event": "before_prompt_build",
+      "trigger": "Prompt build with a non-empty workspaceDir",
+      "launch_behavior": "Calls `ix briefing --format json`, caches the result for 10 minutes per workspace, and prepends `[ix] Session briefing:` plus the JSON payload when briefing data is available.",
+      "failure_mode": "Returns no injection when workspaceDir is absent, Ix Pro is unavailable, or the briefing call fails.",
+      "claude_delta": "Claude triggers briefing on `UserPromptSubmit` and also instructs Claude to append a final Ix summary when hooks helped. OpenClaw launch baseline only prepends context."
+    },
+    {
+      "id": "search-interception",
+      "status": "not_implemented_at_launch",
+      "event": "before_tool_call",
+      "trigger": "Grep, Glob, Read, and Bash tool calls",
+      "launch_behavior": "No Ix context is injected for search tools. The handler records a target path when one is available, but returns no prompt augmentation, block, or approval request.",
+      "failure_mode": "Always a silent no-op at launch.",
+      "claude_delta": "Claude front-runs Grep/Glob and grep-like Bash calls with Ix search context. OpenClaw does not yet replicate that behavior.",
+      "notes": "The `hooks/ix-intercept`, `hooks/ix-read`, and `hooks/ix-bash` directories are documentation remnants; runtime behavior is defined by `plugins/ix-plugin.ts`."
+    },
+    {
+      "id": "pre-edit-gate",
+      "status": "implemented",
+      "event": "before_tool_call",
+      "trigger": "Edit, Write, MultiEdit, and NotebookEdit on non-skipped paths",
+      "launch_behavior": "Runs `ix-decide` for the touched path. `BLOCK` returns `{ block: true, blockReason }`. `REVIEW` returns an OpenClaw approval request. `ALLOW` returns no intervention.",
+      "failure_mode": "Skips markdown, text, lockfiles, common binary assets, and compiled artifacts. If no target path is found, it returns no intervention.",
+      "claude_delta": "Claude surfaces a warning-oriented pre-edit hook. OpenClaw launch baseline can hard-block or require explicit approval."
+    },
+    {
+      "id": "post-edit-ingest",
+      "status": "implemented",
+      "event": "after_tool_call",
+      "trigger": "Successful Edit, Write, MultiEdit, and NotebookEdit calls on non-skipped paths",
+      "launch_behavior": "Runs `ix map <targetPath>` asynchronously via `runIxDetached(...)`. No user-visible output is emitted.",
+      "failure_mode": "Returns silently when the tool errored, the path is skipped, or no target path can be derived.",
+      "claude_delta": "Functionally similar to Claude's async post-edit ingest hook."
+    },
+    {
+      "id": "session-end-map",
+      "status": "implemented",
+      "event": "session_end",
+      "trigger": "OpenClaw session end with a `sessionFile` path",
+      "launch_behavior": "Runs `ix map` asynchronously in the directory that contains the session file. No user-visible output is emitted.",
+      "failure_mode": "Returns silently when `sessionFile` is missing.",
+      "claude_delta": "Claude runs a graph refresh on `Stop` and also has a separate final Ix annotation hook. OpenClaw launch baseline refreshes the graph only."
+    }
+  ]
+}

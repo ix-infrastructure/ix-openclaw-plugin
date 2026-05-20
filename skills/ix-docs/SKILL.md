@@ -5,7 +5,7 @@ metadata:
   { "openclaw": { "requires": { "bins": ["ix"] } } }
 ---
 
-Check `command -v ix` first. If unavailable, stop and say so.
+Run `command -v ix` to verify ix is on PATH. Never use tilde paths (`~/...`) or absolute paths — always invoke `ix` directly via PATH. If not found, stop and say so.
 
 ## Goal
 
@@ -158,14 +158,14 @@ Do not run every command mechanically. Reuse earlier results and stop when addit
 
 Always start with:
 ```bash
-ix stats --format json
-ix subsystems --format json
-ix subsystems --list --format json
+timeout 60s ix stats --format json
+timeout 60s ix subsystems --format json
+timeout 60s ix subsystems --list --format json
 ```
 
 If `TARGET` is not obviously the whole repo:
 ```bash
-ix locate "$TARGET" --limit 5 --format json
+timeout 60s ix locate "$TARGET" --limit 5 --format json
 ```
 
 Resolve whether the target is:
@@ -183,9 +183,9 @@ Use the graph to identify systems, subsystem boundaries, and the most important 
 
 Common commands:
 ```bash
-ix overview "$TARGET" --format json
-ix rank --by dependents --kind class --top 10 --exclude-path test --format json
-ix rank --by callers   --kind function --top 10 --exclude-path test --format json
+timeout 60s ix overview "$TARGET" --format json
+timeout 60s ix rank --by dependents --kind class --top 10 --exclude-path test --format json
+timeout 60s ix rank --by callers   --kind function --top 10 --exclude-path test --format json
 ```
 
 If `TARGET` is the whole repo, skip `ix overview "$TARGET"` and rely on the pre-run subsystem data plus the rank results.
@@ -194,14 +194,14 @@ Additional commands by scope:
 
 For repo or system targets:
 ```bash
-ix subsystems "$TARGET" --format json
-ix subsystems "$TARGET" --explain
+timeout 60s ix subsystems "$TARGET" --format json
+timeout 60s ix subsystems "$TARGET" --explain
 ```
 
 For module or file targets:
 ```bash
-ix contains "$TARGET" --format json
-ix imports  "$TARGET" --format json
+timeout 60s ix contains "$TARGET" --format json
+timeout 60s ix imports  "$TARGET" --format json
 ```
 
 Full mode:
@@ -215,7 +215,7 @@ This phase answers **how the system works**.
 
 Use:
 ```bash
-ix explain "$TARGET" --format json
+timeout 60s ix explain "$TARGET" --format json
 ```
 
 Also run `ix explain` for the most important orchestrators, services, or entry points identified in Phase 2.
@@ -241,9 +241,9 @@ Map the important dependencies and coupling points.
 
 Use:
 ```bash
-ix callers "$TARGET" --limit 20 --format json
-ix callees "$TARGET" --limit 15 --format json
-ix depends "$TARGET" --depth 2 --format json
+timeout 60s ix callers "$TARGET" --limit 20 --format json
+timeout 60s ix callees "$TARGET" --limit 15 --format json
+timeout 60s ix depends "$TARGET" --depth 2 --format json
 ```
 
 If `TARGET` is the whole repo, do not run repo-level callers or callees. Instead, run these commands for the top-ranked boundary components, orchestrators, or subsystem entry points and summarize the cross-subsystem edges they reveal.
@@ -263,7 +263,7 @@ When counts are large:
 
 Always run:
 ```bash
-ix impact "$TARGET" --format json
+timeout 60s ix impact "$TARGET" --format json
 ```
 
 Full mode:
@@ -279,12 +279,12 @@ Use this phase to populate:
 
 Use:
 ```bash
-ix smells --format json
+timeout 60s ix smells --format json
 ```
 
 If the target is smaller than a full repo, scope it when supported:
 ```bash
-ix smells --path "$TARGET" --format json
+timeout 60s ix smells --path "$TARGET" --format json
 ```
 
 Prioritize:
@@ -306,7 +306,7 @@ Allowed use cases:
 
 Use:
 ```bash
-ix read <symbol> --format json
+timeout 60s ix read <symbol> --format json
 ```
 
 Do not summarize implementation line-by-line. Extract only the behavior needed to clarify the docs.

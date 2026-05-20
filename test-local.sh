@@ -23,6 +23,7 @@ echo "── Checking prereqs ──"
 
 [ -d "$REPO" ] && ok "dev repo found: $REPO" || { fail "dev repo not found: $REPO"; exit 1; }
 command -v jq  >/dev/null 2>&1 && ok "jq"   || { fail "jq not in PATH"; exit 1; }
+command -v npm >/dev/null 2>&1 && ok "npm"  || { fail "npm not in PATH"; exit 1; }
 command -v ix  >/dev/null 2>&1 && ok "ix"   || fail "ix not in PATH — hook tests will be skipped"
 IX_OK=$(command -v ix >/dev/null 2>&1 && echo 1 || echo 0)
 
@@ -60,7 +61,7 @@ echo ""
 
 # ── 4. Validate skills ──────────────────────────────────────────────────────
 echo "── Skills ──"
-for skill in ix-understand ix-investigate ix-impact ix-plan ix-debug ix-architecture ix-docs; do
+for skill in ix-understand ix-investigate ix-impact ix-plan ix-debug ix-architecture ix-docs ix-help; do
   SKILL_FILE="$REPO/skills/$skill/SKILL.md"
   if [ -f "$SKILL_FILE" ]; then
     # Check for OpenClaw metadata
@@ -79,6 +80,17 @@ echo "── Agents ──"
 for agent in ix-explorer ix-system-explorer ix-bug-investigator ix-safe-refactor-planner ix-architecture-auditor; do
   [ -f "$REPO/agents/$agent.md" ] && ok "$agent" || fail "missing: agents/$agent.md"
 done
+
+echo ""
+
+# ── 6.5 Validate installers and package wiring ──────────────────────────────
+echo "── Installers and package wiring ──"
+[ -f "$REPO/install.sh" ]  && ok "install.sh"  || fail "missing install.sh"
+[ -f "$REPO/install.ps1" ] && ok "install.ps1" || fail "missing install.ps1"
+
+grep -q "./dist/plugins/ix-plugin.js" "$REPO/package.json" \
+  && ok "package.json points OpenClaw at built dist entry" \
+  || fail "package.json does not point OpenClaw at dist/plugins/ix-plugin.js"
 
 echo ""
 
@@ -125,15 +137,25 @@ fi
 
 echo ""
 
+# ── 8.5 Run Node test suite ─────────────────────────────────────────────────
+echo "── Node test suite ──"
+if (cd "$REPO" && npm test >/dev/null 2>&1); then
+  ok "npm test"
+else
+  fail "npm test failed"
+fi
+
+echo ""
+
 # ── 9. Summary ───────────────────────────────────────────────────────────────
 echo "── Summary ──"
 echo ""
 if [ "$FAILURES" -eq 0 ]; then
   echo "  ✓ All checks passed."
   echo ""
-  echo "  Install the plugin:"
+  echo "  Install the plugin locally:"
   echo ""
-  echo "    openclaw plugins install -l $REPO"
+  echo "    ./install.sh"
   echo ""
   echo "  Then try:"
   echo ""

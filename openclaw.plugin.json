@@ -3,6 +3,27 @@
   "name": "Ix Memory",
   "description": "Ix Memory integration — transforms your agent into a graph-reasoning engineer with cognitive skills for understanding, investigation, impact analysis, planning, debugging, architecture auditing, and deep documentation synthesis.",
   "version": "2.3.0",
+  "contracts": {
+    "tools": [
+      "ix-query",
+      "ix-neighbors",
+      "ix-impact",
+      "ix-map",
+      "ix-decide",
+      "ix-ingest",
+      "ix-history",
+      "ix-docs-tool",
+      "ix-locate",
+      "ix-explain",
+      "ix-rank",
+      "ix-stats",
+      "ix-subsystems",
+      "ix-inventory",
+      "ix-trace",
+      "ix-health",
+      "ix-smells"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -29,5 +50,8 @@
     }
   },
   "skills": ["skills"],
-  "hooks": ["hooks"]
+  "hooks": ["hooks"],
+  "activation": {
+    "onStartup": true
+  }
 }

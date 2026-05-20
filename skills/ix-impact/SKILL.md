@@ -5,7 +5,7 @@ metadata:
   { "openclaw": { "requires": { "bins": ["ix"] } } }
 ---
 
-Check `command -v ix` first. If unavailable, use Grep to find all usages and estimate impact manually.
+Run `command -v ix` to verify ix is on PATH. Never use tilde paths (`~/...`) or absolute paths — always invoke `ix` directly via PATH. If not found, use Grep to find all usages and estimate impact manually.
 
 ## Goal
 
@@ -14,7 +14,7 @@ Answer: *what breaks if this changes, and is it safe to proceed?* Stop as early 
 ## Phase 1 — Risk score (always)
 
 ```bash
-ix impact $ARGUMENTS --format json
+timeout 60s ix impact $ARGUMENTS --format json
 ```
 
 **Immediately classify:**
@@ -29,8 +29,8 @@ ix impact $ARGUMENTS --format json
 
 Run in parallel:
 ```bash
-ix callers  $ARGUMENTS --limit 20 --format json
-ix depends  $ARGUMENTS --depth 2 --format json
+timeout 60s ix callers  $ARGUMENTS --limit 20 --format json
+timeout 60s ix depends  $ARGUMENTS --depth 2 --format json
 ```
 
 Extract: direct callers by name and subsystem, transitive count.
@@ -40,7 +40,7 @@ Extract: direct callers by name and subsystem, transitive count.
 ## Phase 3 — Import chain and subsystem spread (high/critical only)
 
 ```bash
-ix imported-by $ARGUMENTS --format json
+timeout 60s ix imported-by $ARGUMENTS --format json
 ```
 
 Cross-reference callers + dependents + importers to identify:

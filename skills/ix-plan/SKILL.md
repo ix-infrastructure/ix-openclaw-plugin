@@ -5,7 +5,7 @@ metadata:
   { "openclaw": { "requires": { "bins": ["ix"] } } }
 ---
 
-Check `command -v ix` first. If unavailable, use Grep + Read to manually assess blast radius per target.
+Run `command -v ix` to verify ix is on PATH. Never use tilde paths (`~/...`) or absolute paths — always invoke `ix` directly via PATH. If not found, fall back to Grep + Read to manually assess blast radius per target.
 
 ## Goal
 
@@ -16,8 +16,8 @@ Answer: *in what order should these changes be made, what will break, and what n
 If `$ARGUMENTS` contains symbol names, proceed.
 If `$ARGUMENTS` is a description (no identifiable symbols), first run:
 ```bash
-ix text "$ARGUMENTS" --limit 10 --format json
-ix locate "$ARGUMENTS" --limit 5 --format json
+timeout 60s ix text "$ARGUMENTS" --limit 10 --format json
+timeout 60s ix locate "$ARGUMENTS" --limit 5 --format json
 ```
 Identify the 1–4 most relevant symbols and treat those as targets.
 
@@ -25,8 +25,8 @@ Identify the 1–4 most relevant symbols and treat those as targets.
 
 For each identified target, run simultaneously:
 ```bash
-ix impact  <target> --format json
-ix callers <target> --limit 10 --format json
+timeout 60s ix impact  <target> --format json
+timeout 60s ix callers <target> --limit 10 --format json
 ```
 
 Rank targets by risk level: critical > high > medium > low.
@@ -35,7 +35,7 @@ Rank targets by risk level: critical > high > medium > low.
 
 Find how the targets connect:
 ```bash
-ix trace <highest-risk-target> --to <second-target> --format json
+timeout 60s ix trace <highest-risk-target> --to <second-target> --format json
 ```
 
 Run for the most architecturally significant pair. Skip if targets are in independent subsystems.
@@ -43,7 +43,7 @@ Run for the most architecturally significant pair. Skip if targets are in indepe
 ## Phase 4 — Shared dependents (only if high/critical targets exist)
 
 ```bash
-ix depends <highest-risk-target> --depth 2 --format json
+timeout 60s ix depends <highest-risk-target> --depth 2 --format json
 ```
 
 Identify if any third symbol depends on multiple targets (shared blast radius — highest testing priority).
@@ -52,7 +52,7 @@ Identify if any third symbol depends on multiple targets (shared blast radius �
 
 If `ix briefing` returns plans/tasks, check for existing relevant plans:
 ```bash
-ix plans --format json
+timeout 60s ix plans --format json
 ```
 Skip this phase if ix pro is unavailable.
 
