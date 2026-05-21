@@ -7,8 +7,7 @@ OpenClaw + Ix = reasoning engine + persistent code knowledge graph. Skills are c
 ## Installation
 
 ```bash
-openclaw plugins install ix-infrastructure/ix-openclaw-plugin
-openclaw gateway restart
+openclaw plugins install ix-infrastructure/ix-openclaw-plugin && openclaw gateway restart
 ```
 
 ## Requirements
