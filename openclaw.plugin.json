@@ -2,7 +2,7 @@
   "id": "ix-memory",
   "name": "Ix Memory",
   "description": "Ix Memory integration — transforms your agent into a graph-reasoning engineer with cognitive skills for understanding, investigation, impact analysis, planning, debugging, architecture auditing, and deep documentation synthesis.",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "contracts": {
     "tools": [
       "ix-query",
