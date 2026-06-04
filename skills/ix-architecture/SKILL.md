@@ -15,14 +15,14 @@ Answer: *how healthy is this system's design, where are the weak boundaries, and
 
 Run in parallel:
 ```bash
-timeout 60s ix subsystems --format json
-timeout 60s ix subsystems --list --format json
+timeout 60s ix subsystems --format llm
+timeout 60s ix subsystems --list --format llm
 ```
 
 If `$ARGUMENTS` is provided, also run:
 ```bash
 timeout 60s ix subsystems $ARGUMENTS --explain
-timeout 60s ix subsystems $ARGUMENTS --format json
+timeout 60s ix subsystems $ARGUMENTS --format llm
 ```
 
 Extract:
@@ -35,12 +35,12 @@ Extract:
 ## Phase 2 — Smells
 
 ```bash
-timeout 60s ix smells --format json
+timeout 60s ix smells --format llm
 ```
 
 If `$ARGUMENTS` scopes to a path:
 ```bash
-timeout 60s ix smells --path $ARGUMENTS --format json
+timeout 60s ix smells --path $ARGUMENTS --format llm
 ```
 
 Classify each finding: `orphan` / `god-module` / `weak-component`.
@@ -49,8 +49,8 @@ Classify each finding: `orphan` / `god-module` / `weak-component`.
 
 Run only if Phase 1 or 2 revealed significant issues:
 ```bash
-timeout 60s ix rank --by dependents --kind class    --top 10 --exclude-path test --format json
-timeout 60s ix rank --by dependents --kind function --top 10 --exclude-path test --format json
+timeout 60s ix rank --by dependents --kind class    --top 10 --exclude-path test --format llm
+timeout 60s ix rank --by dependents --kind function --top 10 --exclude-path test --format llm
 ```
 
 Correlate: are the most-depended-on entities also in poorly-bounded subsystems? These are the highest-risk components.

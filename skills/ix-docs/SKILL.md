@@ -88,7 +88,7 @@ If `FULL=true`, tell the user the planned mode, output path, and whether splitti
    - Full mode: method summaries only for key classes or services
 
 4. **No raw dumps**
-   - Never output raw JSON
+   - Never output raw command output
    - Never paste command logs
    - Never dump full file inventories, all callers, or all methods
 
@@ -158,14 +158,14 @@ Do not run every command mechanically. Reuse earlier results and stop when addit
 
 Always start with:
 ```bash
-timeout 60s ix stats --format json
-timeout 60s ix subsystems --format json
-timeout 60s ix subsystems --list --format json
+timeout 60s ix stats --format llm
+timeout 60s ix subsystems --format llm
+timeout 60s ix subsystems --list --format llm
 ```
 
 If `TARGET` is not obviously the whole repo:
 ```bash
-timeout 60s ix locate "$TARGET" --limit 5 --format json
+timeout 60s ix locate "$TARGET" --limit 5 --format llm
 ```
 
 Resolve whether the target is:
@@ -183,9 +183,9 @@ Use the graph to identify systems, subsystem boundaries, and the most important 
 
 Common commands:
 ```bash
-timeout 60s ix overview "$TARGET" --format json
-timeout 60s ix rank --by dependents --kind class --top 10 --exclude-path test --format json
-timeout 60s ix rank --by callers   --kind function --top 10 --exclude-path test --format json
+timeout 60s ix overview "$TARGET" --format llm
+timeout 60s ix rank --by dependents --kind class --top 10 --exclude-path test --format llm
+timeout 60s ix rank --by callers   --kind function --top 10 --exclude-path test --format llm
 ```
 
 If `TARGET` is the whole repo, skip `ix overview "$TARGET"` and rely on the pre-run subsystem data plus the rank results.
@@ -194,14 +194,14 @@ Additional commands by scope:
 
 For repo or system targets:
 ```bash
-timeout 60s ix subsystems "$TARGET" --format json
+timeout 60s ix subsystems "$TARGET" --format llm
 timeout 60s ix subsystems "$TARGET" --explain
 ```
 
 For module or file targets:
 ```bash
-timeout 60s ix contains "$TARGET" --format json
-timeout 60s ix imports  "$TARGET" --format json
+timeout 60s ix contains "$TARGET" --format llm
+timeout 60s ix imports  "$TARGET" --format llm
 ```
 
 Full mode:
@@ -215,7 +215,7 @@ This phase answers **how the system works**.
 
 Use:
 ```bash
-timeout 60s ix explain "$TARGET" --format json
+timeout 60s ix explain "$TARGET" --format llm
 ```
 
 Also run `ix explain` for the most important orchestrators, services, or entry points identified in Phase 2.
@@ -241,9 +241,9 @@ Map the important dependencies and coupling points.
 
 Use:
 ```bash
-timeout 60s ix callers "$TARGET" --limit 20 --format json
-timeout 60s ix callees "$TARGET" --limit 15 --format json
-timeout 60s ix depends "$TARGET" --depth 2 --format json
+timeout 60s ix callers "$TARGET" --limit 20 --format llm
+timeout 60s ix callees "$TARGET" --limit 15 --format llm
+timeout 60s ix depends "$TARGET" --depth 2 --format llm
 ```
 
 If `TARGET` is the whole repo, do not run repo-level callers or callees. Instead, run these commands for the top-ranked boundary components, orchestrators, or subsystem entry points and summarize the cross-subsystem edges they reveal.
@@ -263,7 +263,7 @@ When counts are large:
 
 Always run:
 ```bash
-timeout 60s ix impact "$TARGET" --format json
+timeout 60s ix impact "$TARGET" --format llm
 ```
 
 Full mode:
@@ -279,12 +279,12 @@ Use this phase to populate:
 
 Use:
 ```bash
-timeout 60s ix smells --format json
+timeout 60s ix smells --format llm
 ```
 
 If the target is smaller than a full repo, scope it when supported:
 ```bash
-timeout 60s ix smells --path "$TARGET" --format json
+timeout 60s ix smells --path "$TARGET" --format llm
 ```
 
 Prioritize:
@@ -306,7 +306,7 @@ Allowed use cases:
 
 Use:
 ```bash
-timeout 60s ix read <symbol> --format json
+timeout 60s ix read <symbol> --format llm
 ```
 
 Do not summarize implementation line-by-line. Extract only the behavior needed to clarify the docs.
