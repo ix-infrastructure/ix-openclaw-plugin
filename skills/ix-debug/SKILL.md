@@ -14,12 +14,12 @@ Answer: *where in the execution path is this likely failing, and why?* Stop once
 ## Phase 1 — Locate the entry point (always)
 
 ```bash
-timeout 60s ix locate $ARGUMENTS --limit 5 --format json
+timeout 60s ix locate $ARGUMENTS --limit 5 --format llm
 ```
 
 If `$ARGUMENTS` is a symptom description rather than a symbol name, also run:
 ```bash
-timeout 60s ix text "$ARGUMENTS" --limit 10 --format json
+timeout 60s ix text "$ARGUMENTS" --limit 10 --format llm
 ```
 
 Identify the most likely entry point (where the failure originates or first manifests).
@@ -27,7 +27,7 @@ Identify the most likely entry point (where the failure originates or first mani
 ## Phase 2 — Explain (always)
 
 ```bash
-timeout 60s ix explain <entry-point> --format json
+timeout 60s ix explain <entry-point> --format llm
 ```
 
 Extract: role, callers, callees, confidence. Identify whether this is:
@@ -40,7 +40,7 @@ Extract: role, callers, callees, confidence. Identify whether this is:
 ## Phase 3 — Trace the execution path
 
 ```bash
-timeout 60s ix trace <entry-point> --downstream --format json
+timeout 60s ix trace <entry-point> --downstream --format llm
 ```
 
 Walk the downstream path. At each step, look for:
@@ -55,7 +55,7 @@ Walk the downstream path. At each step, look for:
 ## Phase 4 — Callers (if failure might come from upstream)
 
 ```bash
-timeout 60s ix callers <entry-point> --limit 10 --format json
+timeout 60s ix callers <entry-point> --limit 10 --format llm
 ```
 
 Check whether the fault is in how this is *called* rather than in its own logic.
@@ -64,7 +64,7 @@ Check whether the fault is in how this is *called* rather than in its own logic.
 
 For each root cause candidate (max 2):
 ```bash
-timeout 60s ix read <candidate-function> --format json
+timeout 60s ix read <candidate-function> --format llm
 ```
 
 Read **the specific function only**. Look for:

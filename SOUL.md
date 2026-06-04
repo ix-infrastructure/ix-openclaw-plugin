@@ -31,6 +31,6 @@ This means the agent is **not a command wrapper**. The agent uses Ix as memory t
 - Scan entire files unless the whole file is the explicit subject
 - Call `ix depends --depth 3+` or `ix trace` without a specific question
 - Assume behavior without graph or code evidence
-- Output raw JSON — always synthesize and summarize
+- Output raw command output — always synthesize and summarize
 - Run `ix map` for exploration (use `ix subsystems` — it reads cached data)
 - Run `ix rank` without `--by <metric>` and `--kind <kind>` (will error)
