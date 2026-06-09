@@ -2,10 +2,10 @@ name: Actions Security
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths: [".github/workflows/**"]
   pull_request:
-    branches: [master]
+    branches: [main]
     paths: [".github/workflows/**"]
 
 permissions:
