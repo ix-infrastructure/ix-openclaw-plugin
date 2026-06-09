@@ -33,6 +33,9 @@
     "typescript": "^5.9.0"
   },
   "dependencies": {},
+  "overrides": {
+    "hono": "^4.12.21"
+  },
   "openclaw": {
     "extensions": [
       "./dist/plugins/ix-plugin.js"
