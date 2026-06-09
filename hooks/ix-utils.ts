@@ -2,7 +2,7 @@
  * ix-utils.ts — Shared utilities for Ix Memory OpenClaw hooks.
  *
  * Provides health checking with TTL cache, JSON parsing from ix output,
- * async ix command execution, and error reporting with GitHub issue filing.
+ * async ix command execution, and local error logging (no data leaves the machine).
  */
 
 import { execFile } from "node:child_process";

@@ -27,28 +27,9 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "errorMode": {
-        "type": "string",
-        "enum": ["off", "ask", "auto-important", "auto-all"],
-        "default": "auto-important"
-      },
-      "errorRepo": {
-        "type": "string",
-        "default": "ix-infrastructure/IX-Memory"
-      }
-    }
+    "properties": {}
   },
-  "uiHints": {
-    "errorMode": {
-      "label": "Error Reporting Mode",
-      "placeholder": "auto-important"
-    },
-    "errorRepo": {
-      "label": "GitHub Repo for Error Issues",
-      "placeholder": "ix-infrastructure/IX-Memory"
-    }
-  },
+  "uiHints": {},
   "skills": ["skills"],
   "hooks": ["hooks"],
   "activation": {
