@@ -1,6 +1,6 @@
 # ix-openclaw-plugin
 
-An OpenClaw plugin that turns your agent into a **graph-reasoning engineering agent** using [Ix Memory](https://github.com/ix-infrastructure/IX-Memory) as its structured memory backend.
+An OpenClaw plugin that turns your agent into a **graph-reasoning engineering agent** using [Ix Memory](https://github.com/ix-infrastructure/Ix) as its structured memory backend.
 
 OpenClaw + Ix = reasoning engine + persistent code knowledge graph. Skills are cognitive abstractions (not CLI wrappers) that minimize token usage and maximize accuracy.
 
@@ -14,7 +14,7 @@ openclaw plugins install ix-infrastructure/ix-openclaw-plugin && openclaw gatewa
 
 ### Ix Memory backend
 
-[Ix Memory](https://github.com/ix-infrastructure/IX-Memory) must be installed and running:
+[Ix Memory](https://github.com/ix-infrastructure/Ix) must be installed and running:
 
 ```bash
 ix status   # should return ok
