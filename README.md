@@ -135,9 +135,7 @@ Plugin config in `~/.openclaw/openclaw.json`:
   "plugins": {
     "entries": {
       "ix-memory": {
-        "enabled": true,
-        "errorMode": "auto-important",
-        "errorRepo": "ix-infrastructure/IX-Memory"
+        "enabled": true
       }
     }
   }
