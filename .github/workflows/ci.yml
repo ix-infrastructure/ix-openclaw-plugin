@@ -2,106 +2,80 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref so rapid pushes don't pile up runners.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
-    name: Validate plugin structure
+  # ── Build + test ─────────────────────────────────────────────────────────
+  # The plugin is a TypeScript package: `npm run build` compiles with tsc and
+  # the test script then runs Node's built-in runner over the ESM .test.mjs
+  # files (which import the compiled dist/). Tests stub global fetch, so this is
+  # fully offline — no backend or network needed. node 22 is the shipped runtime
+  # (package.json engines: >=22.19.0); no OS matrix is required for a pure-JS
+  # package with no native deps.
+  test:
+    name: Build & test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Test (node --test)
+        run: node --test tests/*.test.mjs
 
-      - name: Validate JSON files
-        run: |
-          echo "── JSON validation ──"
-          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json; do
-            if jq -e . "$f" >/dev/null 2>&1; then
-              echo "  [ok] $f"
-            else
-              echo "  [FAIL] $f is invalid JSON"
-              exit 1
-            fi
-          done
-
-      - name: Validate plugin version consistency
-        run: |
-          echo "── Version consistency ──"
-          PLUGIN_VER=$(jq -r '.version' .claude-plugin/plugin.json)
-          MARKETPLACE_VER=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
-          echo "  plugin.json:      $PLUGIN_VER"
-          echo "  marketplace.json: $MARKETPLACE_VER"
-          if [ "$PLUGIN_VER" != "$MARKETPLACE_VER" ]; then
-            echo "  [FAIL] version mismatch"
-            exit 1
-          fi
-          echo "  [ok] versions match"
-
-      - name: Validate expected skills
-        run: |
-          echo "── Skills ──"
-          FAIL=0
-          for skill in ix-understand ix-investigate ix-impact ix-plan ix-debug ix-architecture ix-docs; do
-            if [ -f "skills/$skill/SKILL.md" ]; then
-              echo "  [ok] $skill"
-            else
-              echo "  [FAIL] missing: skills/$skill/SKILL.md"
-              FAIL=1
-            fi
-          done
-          exit $FAIL
-
-      - name: Validate expected agents
-        run: |
-          echo "── Agents ──"
-          FAIL=0
-          for agent in ix-explorer ix-system-explorer ix-bug-investigator ix-safe-refactor-planner ix-architecture-auditor; do
-            if [ -f "agents/$agent.md" ]; then
-              echo "  [ok] $agent"
-            else
-              echo "  [FAIL] missing: agents/$agent.md"
-              FAIL=1
-            fi
-          done
-          exit $FAIL
-
-      - name: Validate hooks
-        run: |
-          echo "── Hooks ──"
-          FAIL=0
-          for hook in ix-briefing.sh ix-intercept.sh ix-read.sh ix-bash.sh ix-pre-edit.sh ix-ingest.sh ix-map.sh; do
-            if [ -f "hooks/$hook" ] && [ -x "hooks/$hook" ]; then
-              echo "  [ok] $hook"
-            elif [ -f "hooks/$hook" ]; then
-              echo "  [FAIL] $hook exists but is not executable"
-              FAIL=1
-            else
-              echo "  [FAIL] missing: hooks/$hook"
-              FAIL=1
-            fi
-          done
-          exit $FAIL
-
+  # ── Shell script lint ────────────────────────────────────────────────────
+  # The repo ships installer + local-test shell scripts. shellcheck is
+  # preinstalled on ubuntu-latest; scope to error severity so the gate catches
+  # real bugs without failing on stylistic notes.
   shellcheck:
-    name: Shellcheck hooks
+    name: Shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Run shellcheck on hook scripts
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Run shellcheck on all shell scripts
         run: |
-          echo "── Shellcheck ──"
-          FAIL=0
-          for f in hooks/*.sh test-local.sh; do
-            if shellcheck --severity=error "$f"; then
-              echo "  [ok] $f"
-            else
-              echo "  [FAIL] $f"
-              FAIL=1
-            fi
-          done
-          exit $FAIL
+          set -euo pipefail
+          shellcheck --version
+          mapfile -d '' files < <(find . -name '*.sh' \
+            -not -path './.git/*' -not -path '*/node_modules/*' -print0)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no shell scripts found"; exit 0
+          fi
+          printf 'checking: %s\n' "${files[@]}"
+          shellcheck --severity=error "${files[@]}"
+
+  # ── Aggregate gate ───────────────────────────────────────────────────────
+  # One stable required-status-check context. Fails if any upstream job failed
+  # OR was skipped/cancelled, so the job graph can be reshaped without orphaning
+  # the required check.
+  ci-success:
+    name: CI Passed
+    if: always()
+    needs: [test, shellcheck]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs succeeded
+        run: |
+          echo "test=${{ needs.test.result }}"
+          echo "shellcheck=${{ needs.shellcheck.result }}"
+          [ "${{ needs.test.result }}" = "success" ] \
+            && [ "${{ needs.shellcheck.result }}" = "success" ]
