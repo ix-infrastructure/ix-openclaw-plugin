@@ -62,7 +62,11 @@ let briefingCache:
     }
   | undefined;
 
-export default definePluginEntry({
+// Annotate the export explicitly: definePluginEntry's inferred return type
+// references an internal openclaw plugin-sdk chunk that isn't portable for
+// declaration emit (TS2742). ReturnType<typeof definePluginEntry> names it
+// via the imported symbol, which is portable.
+const ixMemoryPlugin: ReturnType<typeof definePluginEntry> = definePluginEntry({
   id: "ix-memory",
   name: "Ix Memory",
   description:
@@ -78,6 +82,8 @@ export default definePluginEntry({
     api.on("session_end", handleSessionEnd, { priority: 50 });
   },
 });
+
+export default ixMemoryPlugin;
 
 function registerTool(api: any, toolModule: ToolModule): void {
   const definition = {
