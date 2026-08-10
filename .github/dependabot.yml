@@ -59,21 +59,14 @@ updates:
       # openclaw is deliberately held at the extended-stable line (2026.6.34 --
       # published 2026-08-04, i.e. a maintained backport NEWER than `latest`),
       # whose shrinkwrap carries patched undici/ip-address/fast-uri. The 2026.7.x
-      # releases regressed those pins, so an auto-bump here would silently undo
-      # 14 resolved alerts, 7 of them high: 11 that were open (5 high -- undici,
-      # ip-address, fast-uri) plus 3 auto-dismissed (brace-expansion x2 high,
-      # protobufjs). `latest` is also a prerelease (2026.7.1-2) that does not
-      # satisfy our own peerDependency `openclaw: ">=2026.5.17"`.
+      # releases regressed those pins, so an auto-bump here would silently reopen
+      # 11 alerts, 5 of them high. `latest` is also a prerelease (2026.7.1-2) that
+      # does not satisfy our own peerDependency `openclaw: ">=2026.5.17"`.
       #
       # Scoped to version-updates ONLY, deliberately: a bare ignore here would
       # also suppress security-update PRs for openclaw itself, so a direct CVE in
       # openclaw would raise no PR and go unnoticed until someone read the
-      # Security tab. The `update-types` form is inert in the security lane
-      # (it materializes as `version-requirement: null`), leaving that lane
-      # intact. Verified this still blocks the GROUPED bump, not just ungrouped
-      # ones -- ignore filtering runs per-dependency before group assembly:
-      # "All updates for openclaw were ignored" then "Nothing to update for
-      # Dependency Group: 'dev-dependencies'".
+      # Security tab. update-types is version-scoped, leaving that lane intact.
       # Revisit the pin by hand when upstream's shrinkwrap is clean.
       - dependency-name: "openclaw"
         update-types:
