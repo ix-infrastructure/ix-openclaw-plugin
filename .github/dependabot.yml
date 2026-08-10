@@ -60,12 +60,21 @@ updates:
       # also suppress security-update PRs for openclaw itself, so a direct CVE in
       # openclaw would raise no PR and go unnoticed until someone read the
       # Security tab. update-types is version-scoped, leaving that lane intact.
-      # Revisit the pin by hand when upstream's shrinkwrap is clean.
+      #
+      # semver-patch is deliberately NOT ignored, so the extended-stable line
+      # keeps flowing. openclaw is calver, so from 2026.6.34 a patch bump is
+      # 2026.6.35 -- another backport on the same line -- while 2026.7.x is
+      # semver-minor and 2027.x is semver-major, both still blocked. That line
+      # ships regularly (2026.6.33 on 2026-07-21, 2026.6.34 on 2026-08-04, the
+      # latter being the release that carries the patched pins), so ignoring
+      # patches would freeze out exactly the updates we want. There is no
+      # Dependabot auto-merge workflow in this repo, so a 2026.6.35 bump arrives
+      # as a reviewable PR, not an automatic one -- which is also the trip-wire
+      # for revisiting the pin, rather than relying on someone remembering to.
       - dependency-name: "openclaw"
         update-types:
           - "version-update:semver-major"
           - "version-update:semver-minor"
-          - "version-update:semver-patch"
     groups:
       dev-dependencies:
         dependency-type: development
