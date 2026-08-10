@@ -19,6 +19,22 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # hono and @hono/node-server reach us only as transitive deps of the
+      # `openclaw` devDependency, which ships its own npm-shrinkwrap.json. npm
+      # honors a dependency's shrinkwrap over our `overrides`, so no root-level
+      # change can move these; Dependabot reports fix_available:false and the
+      # security-update job exits 1 on every run. Ignoring them keeps that lane
+      # green without hiding the alerts, which stay visible under Security.
+      # REMOVE these two entries once upstream openclaw refreshes its pins to
+      # hono >= 4.12.34 and @hono/node-server >= 2.0.5.
+      - dependency-name: "hono"
+      - dependency-name: "@hono/node-server"
+      # openclaw is deliberately held at the extended-stable line (2026.6.34),
+      # whose shrinkwrap carries patched undici/ip-address/fast-uri. Newer
+      # releases (2026.7.x) regressed those pins, so an auto-bump here would
+      # silently reopen 11 alerts, 5 of them high. Revisit the pin by hand when
+      # upstream's shrinkwrap is clean, then drop this entry.
+      - dependency-name: "openclaw"
     groups:
       dev-dependencies:
         dependency-type: development
