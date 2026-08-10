@@ -19,36 +19,29 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # hono and @hono/node-server reach us only as transitive deps of the
-      # `openclaw` devDependency, which ships its own npm-shrinkwrap.json. npm
-      # honors a dependency's shrinkwrap over our `overrides`, so no root-level
-      # change can move them -- note the blocker is the shrinkwrap freeze, NOT
-      # the declaring range: @modelcontextprotocol/sdk asks for hono ^4.11.4,
-      # which the patched 4.12.34 satisfies. (@hono/node-server is different:
-      # patched 2.0.5 genuinely violates the sdk's ^1.19.9.) Dependabot reports
-      # fix_available:false and its security-update job exits 1 on every run.
+      # NOTE on hono / @hono/node-server (6 + 1 open alerts, all medium/low):
+      # these reach us only as transitive deps of the `openclaw` devDependency,
+      # which ships its own npm-shrinkwrap.json. npm honors a dependency's
+      # shrinkwrap over our `overrides`, so no root-level change can move them.
+      # The blocker is that freeze, NOT the declaring range --
+      # @modelcontextprotocol/sdk asks for hono ^4.11.4 and the patched 4.12.34
+      # satisfies it. (@hono/node-server differs: patched 2.0.5 genuinely
+      # violates the sdk's ^1.19.9.) Dependabot reports fix_available:false and
+      # its security-update job exits 1 on every run.
       #
-      # WARNING: a bare `ignore` (no update-types) is shield-check scoped, so it
-      # suppresses Dependabot SECURITY-update PRs for these packages too, not
-      # just version bumps. The alerts themselves stay visible under Security,
-      # and that tab is now the ONLY signal for them -- no PR will be raised
-      # even once a fix becomes reachable. That is the deliberate trade for a
-      # permanently red lane, but it is a real cost.
+      # They are deliberately NOT ignored here. Ignoring them was tried and
+      # measured: the job definition confirmed it received the bare `hono` and
+      # `@hono/node-server` ignore conditions and the job still ran, still hit
+      # the conflict, and still exited 1. `ignore` suppresses the pull request,
+      # not the resolution attempt, so it cannot green this lane -- while a bare
+      # ignore IS shield-check scoped and would have cost us security-update PRs
+      # for these packages. That is all cost and no benefit, so the red security
+      # lane is accepted instead. Only dismissing the alerts would silence it.
       #
-      # REMOVE both entries once the freeze lifts. The likeliest trigger is not
-      # upstream re-pinning hono, but the 2026.8 line going stable: 2026.8.1-beta.1
-      # ships NO npm-shrinkwrap.json at all, so ordinary resolution and
-      # `overrides` start working again there.
-      - dependency-name: "hono"
-      - dependency-name: "@hono/node-server"
-      # body-parser is the one alert this pin makes WORSE, and it is disclosed
-      # rather than hidden: extended-stable's shrinkwrap freezes it at 2.2.2
-      # where `latest` had 2.3.0, so GHSA-v422-hmwv-36x6 (low) reopens as alert
-      # #89. Same freeze, same fix_available:false, so leaving it unignored just
-      # returns the security lane to permanently red for a low-severity issue in
-      # a dev tree that never executes. Net effect of the pin is still 18 open
-      # alerts -> 8, with all 5 highs cleared. Same shield-check caveat as above.
-      - dependency-name: "body-parser"
+      # Expect the freeze to lift when the 2026.8 line goes stable:
+      # 2026.8.1-beta.1 ships NO npm-shrinkwrap.json at all, so ordinary
+      # resolution and `overrides` start working again there.
+      #
       # openclaw is deliberately held at the extended-stable line (2026.6.34 --
       # published 2026-08-04, i.e. a maintained backport NEWER than `latest`),
       # whose shrinkwrap carries patched undici/ip-address/fast-uri. The 2026.7.x
