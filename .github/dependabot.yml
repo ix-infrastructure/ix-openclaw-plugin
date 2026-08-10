@@ -30,13 +30,27 @@ updates:
       # its security-update job exits 1 on every run.
       #
       # They are deliberately NOT ignored here. Ignoring them was tried and
-      # measured: the job definition confirmed it received the bare `hono` and
-      # `@hono/node-server` ignore conditions and the job still ran, still hit
-      # the conflict, and still exited 1. `ignore` suppresses the pull request,
-      # not the resolution attempt, so it cannot green this lane -- while a bare
-      # ignore IS shield-check scoped and would have cost us security-update PRs
-      # for these packages. That is all cost and no benefit, so the red security
-      # lane is accepted instead. Only dismissing the alerts would silence it.
+      # measured, and it does not green this lane -- for a reason worth stating
+      # precisely, because it is not the obvious one. The ignore DOES take
+      # effect, and early: the job short-circuits before any resolution runs --
+      #
+      #   Checking if hono 4.12.25 needs updating
+      #   Ignored versions:  >= 0 - from .github/dependabot.yml
+      #   All updates for hono were ignored
+      #   | all_versions_ignored | null |
+      #   Error: Command failed with exit code 1
+      #
+      # -- but Dependabot classifies a fully-ignored security update as the job
+      # error `all_versions_ignored` and exits 1. So the lane is red either way:
+      # `security_update_not_possible` without the ignore,
+      # `all_versions_ignored` with it. Only dismissing the alerts silences it.
+      #
+      # Meanwhile a bare ignore IS shield-check scoped, and the job definition
+      # shows why: bare materializes as `version-requirement: ">= 0"`, while the
+      # `update-types` form materializes as `version-requirement: null` and is
+      # inert in a security job. So a bare entry here would have cost us
+      # security-update PRs for these packages. All cost, no benefit -- the red
+      # security lane is accepted instead.
       #
       # Expect the freeze to lift when the 2026.8 line goes stable:
       # 2026.8.1-beta.1 ships NO npm-shrinkwrap.json at all, so ordinary
@@ -45,14 +59,21 @@ updates:
       # openclaw is deliberately held at the extended-stable line (2026.6.34 --
       # published 2026-08-04, i.e. a maintained backport NEWER than `latest`),
       # whose shrinkwrap carries patched undici/ip-address/fast-uri. The 2026.7.x
-      # releases regressed those pins, so an auto-bump here would silently reopen
-      # 11 alerts, 5 of them high. `latest` is also a prerelease (2026.7.1-2) that
-      # does not satisfy our own peerDependency `openclaw: ">=2026.5.17"`.
+      # releases regressed those pins, so an auto-bump here would silently undo
+      # 14 resolved alerts, 7 of them high: 11 that were open (5 high -- undici,
+      # ip-address, fast-uri) plus 3 auto-dismissed (brace-expansion x2 high,
+      # protobufjs). `latest` is also a prerelease (2026.7.1-2) that does not
+      # satisfy our own peerDependency `openclaw: ">=2026.5.17"`.
       #
       # Scoped to version-updates ONLY, deliberately: a bare ignore here would
       # also suppress security-update PRs for openclaw itself, so a direct CVE in
       # openclaw would raise no PR and go unnoticed until someone read the
-      # Security tab. update-types is version-scoped, leaving that lane intact.
+      # Security tab. The `update-types` form is inert in the security lane
+      # (it materializes as `version-requirement: null`), leaving that lane
+      # intact. Verified this still blocks the GROUPED bump, not just ungrouped
+      # ones -- ignore filtering runs per-dependency before group assembly:
+      # "All updates for openclaw were ignored" then "Nothing to update for
+      # Dependency Group: 'dev-dependencies'".
       # Revisit the pin by hand when upstream's shrinkwrap is clean.
       - dependency-name: "openclaw"
         update-types:
