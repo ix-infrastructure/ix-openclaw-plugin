@@ -1,4 +1,5 @@
 import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-smells";
 export const description =
@@ -27,6 +28,11 @@ interface Params {
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
+  const llmArgs = ["smells"];
+  if (params.path) llmArgs.push("--path", params.path);
+  const fast = await tryLlm(llmArgs, dir);
+  if (fast) return `## ix-smells\n\n${fast}`;
+
   const args = ["smells", "--format", "json"];
   if (params.path) args.push("--path", params.path);
 

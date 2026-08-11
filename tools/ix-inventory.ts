@@ -1,4 +1,5 @@
 import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-inventory";
 export const description =
@@ -29,6 +30,9 @@ interface Params {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   const kind = params.kind ?? "file";
+
+  const fast = await tryLlm(["inventory", "--kind", kind, "--path", params.path], dir);
+  if (fast) return `## ix-inventory: ${params.path}\n\n${fast}`;
 
   let raw: any;
   try {

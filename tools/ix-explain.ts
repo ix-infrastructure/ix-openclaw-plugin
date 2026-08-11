@@ -1,4 +1,5 @@
 import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-explain";
 export const description =
@@ -21,6 +22,12 @@ interface Params {
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
+
+  // Tier 5: gated to ix >= 0.9.2, not 0.7.0. Before that release `explain`
+  // accepted `--format llm` and rendered *text* — no error, exit 0 — so an
+  // ungated call here would hand the model prose dressed as records.
+  const fast = await tryLlm(["explain", params.symbol], dir);
+  if (fast) return `## ix-explain: ${params.symbol}\n\n${fast}`;
 
   let raw: any;
   try {

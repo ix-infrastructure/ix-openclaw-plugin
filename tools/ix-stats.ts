@@ -1,4 +1,5 @@
 import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-stats";
 export const description =
@@ -15,6 +16,12 @@ export async function execute(
   context: ToolContext
 ): Promise<string> {
   const dir = toolDirectory(context);
+
+  // Ahead of the HTTP path deliberately — see runtime/llm.ts. Defers when the
+  // records report an empty graph, so the "run `ix map`" line below survives;
+  // a substring check, not a parse.
+  const fast = await tryLlm(["stats"], dir);
+  if (fast && !fast.includes("total=0")) return `## ix-stats\n\n${fast}`;
 
   let raw: any;
   try {
