@@ -1,5 +1,5 @@
 import { callRuntime } from "../runtime/client.ts";
-import { previewMarkdown, runIx, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { IxCommandError, previewMarkdown, runIx, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-docs-tool";
 export const description =
@@ -149,10 +149,23 @@ function formatOverview(overview: any): string {
   return lines.join("\n") + "\n";
 }
 
+/**
+ * Run an `ix` command, keeping stdout even when it exits non-zero.
+ *
+ * `runIx` rejects on a non-zero exit, and this used to discard everything with
+ * it. Several `ix` commands exit 1 to signal "asked for something that does not
+ * exist" while still printing a useful JSON body, and `locate` is about to join
+ * them (Ix#539) -- without this the diagnostics vanish and the tool falls back
+ * to a generic "Not found in graph", losing the guidance ix supplied.
+ *
+ * A failure with no output still maps to null, so the ix-unavailable path is
+ * unchanged.
+ */
 async function safeRun(args: string[], dir: string): Promise<string | null> {
   try {
     return await runIx(args, { cwd: dir });
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    const stdout = error instanceof IxCommandError ? error.stdout : "";
+    return stdout.trim() ? stdout : null;
   }
 }
