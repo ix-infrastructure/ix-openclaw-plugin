@@ -21,7 +21,9 @@ jobs:
   # files (which import the compiled dist/). Tests stub global fetch, so this is
   # fully offline — no backend or network needed. node 22 is the shipped runtime
   # (package.json engines: >=22.19.0); no OS matrix is required for a pure-JS
-  # package with no native deps.
+  # package. NOTE: the package itself ships no native code, but the dev tree
+  # does -- `npm ci` runs postinstall scripts for koffi and the openclaw
+  # platform binaries, so this job is not script-free.
   test:
     name: Build & test
     runs-on: ubuntu-latest
