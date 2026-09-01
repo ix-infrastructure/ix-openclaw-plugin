@@ -26,7 +26,7 @@ Repository: `ix-openclaw-plugin`
 
 - **OpenClaw is a real platform**, not an internal codename, placeholder, or prototype. It is listed in `Ix/README.md` alongside Claude Code CLI, OpenAI Codex CLI, and Google Gemini CLI in the supported surfaces badge.
 - **Install command confirmed:** `openclaw plugins install git:ix-infrastructure/ix-openclaw-plugin`. The CLI entry point is `openclaw`. Git repos use the `git:owner/repo` prefix. ClawHub packages use `clawhub:<package>`. npm packages use the bare name.
-- **Runtime confirmed:** TypeScript, Node 24 (recommended) or Node 22.19+ minimum. ESM modules mandatory. No Bun dependency.
+- **Runtime confirmed:** TypeScript, Node 24.15+ (recommended) or Node 22.22.3+ minimum -- this mirrors openclaw's own `engines.node`, which excludes 23.x and 24.0-24.14 outright. ESM modules mandatory. No Bun dependency.
 - **Plugin manifest confirmed:** `openclaw.plugin.json` with `id`, `name`, `description`, `contracts.tools`, `configSchema`, `activation.onStartup`.
 - **Plugin SDK confirmed:** `openclaw/plugin-sdk`. Entry point via `definePluginEntry()` from `openclaw/plugin-sdk/plugin-entry`. Tools registered with `api.registerTool()`. Hooks registered with `api.on("event_name", handler)`.
 - **Hook events confirmed:** `before_tool_call`, `after_tool_call`, `tool_result_persist`, `message_received`, `agent_end`, `session_start`, `session_end`, `before_prompt_build`, `agent_turn_prepare`, `before_agent_run`, `before_agent_reply`, `subagent_spawning`, `gateway_start`, and others. Full list in `OpenClawPlatformSurvey.md`.
@@ -299,7 +299,7 @@ Unknown count: reduced to **0**. All platform unknowns resolved as of 2026-05-19
 **Resolved:**
 1. ~~What is OpenClaw?~~ **Resolved:** Real external AI coding agent CLI tool. GitHub: https://github.com/openclaw/openclaw. Listed alongside Claude, Codex, Gemini. Alpha target date: 2027-03-01.
 2. ~~Should this plugin remain an active target?~~ **Resolved:** Yes. Active target — not a candidate for archiving or merging.
-3. ~~Exact runtime.~~ **Resolved:** TypeScript/Node 24 (Node 22.19+ minimum). ESM modules mandatory. No Bun dependency.
+3. ~~Exact runtime.~~ **Resolved:** TypeScript/Node 24.15+ (Node 22.22.3+ minimum). ESM modules mandatory. No Bun dependency.
 4. ~~Plugin manifest and schema.~~ **Resolved:** `openclaw.plugin.json` with `id`, `name`, `description`, `contracts.tools` array, `configSchema`, `activation.onStartup`.
 5. ~~Hook and event support.~~ **Resolved:** Full hook system via `api.on("event_name", handler)` in `definePluginEntry`. Events include `before_tool_call`, `after_tool_call`, `tool_result_persist`, `message_received`, `agent_end`, `session_start`, `session_end`, `before_prompt_build`, `agent_turn_prepare`, and many more.
 6. ~~MCP, agent delegation, skill loading, instruction file.~~ **Resolved:** MCP supported via MCP Registry. Agent delegation via subagent hooks. Skills loaded from `skills/<name>/SKILL.md`. Instruction file is `AGENTS.md`.
