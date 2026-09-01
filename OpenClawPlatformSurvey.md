@@ -23,7 +23,7 @@
 
 **Answer: TypeScript / Node 24**
 
-- Node 24.15+ recommended; Node 22.22.3+ minimum (mirrors openclaw's own engines range)
+- Node 24 recommended; Node 22.19+ minimum
 - TypeScript ESM modules mandatory
 - No Bun dependency (unlike OpenCode)
 - Plugin SDK: `openclaw/plugin-sdk` (npm package)

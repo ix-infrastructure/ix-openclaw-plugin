@@ -35,6 +35,13 @@ updates:
       # been 3 high / 2 moderate / 1 low), clearing all 7 Dependabot alerts.
       # `overrides` are a working lever again if a future release regresses one.
       #
+      # Contributor note: openclaw 2026.8.2 declares a stricter engines.node
+      # than we do (>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0, and the dev
+      # tree's hosted-git-info excludes 25.x on top of that). That is a DEV
+      # floor only. This package's own engines.node stays >=22.19.0, matching
+      # peerDependencies openclaw >=2026.5.17 -- consumers on the
+      # extended-stable line must not be locked out by a devDependency.
+      #
       # openclaw was previously held at the extended-stable line (2026.6.34)
       # because the 2026.7.x releases regressed undici/ip-address/fast-uri and
       # an auto-bump would have silently reopened 11 alerts, 5 of them high.
