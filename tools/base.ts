@@ -19,6 +19,25 @@ export function toolDirectory(context: ToolContext): string {
   return context.worktree ?? context.directory;
 }
 
+/**
+ * An `ix` failure that still produced output on stdout.
+ *
+ * Several `ix` commands exit 1 to mean "you asked for something that does not
+ * exist" while printing a useful JSON body, so the exit code alone is not
+ * enough to decide the output is worthless. Carrying stdout on the error keeps
+ * `runIx` rejecting exactly as before -- every existing caller is unaffected --
+ * while letting a caller that knows better recover the body.
+ */
+export class IxCommandError extends Error {
+  readonly stdout: string;
+
+  constructor(message: string, stdout: string) {
+    super(message);
+    this.name = "IxCommandError";
+    this.stdout = stdout;
+  }
+}
+
 export function runIx(args: string[], options: RunIxOptions): Promise<string> {
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -26,7 +45,7 @@ export function runIx(args: string[], options: RunIxOptions): Promise<string> {
     execFile("ix", args, { cwd: options.cwd, timeout }, (error, stdout, stderr) => {
       if (error) {
         const detail = stderr.trim() || error.message;
-        reject(new Error(detail));
+        reject(new IxCommandError(detail, stdout));
         return;
       }
 

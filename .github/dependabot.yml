@@ -19,65 +19,46 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-      # NOTE on hono / @hono/node-server (6 + 1 open alerts, all medium/low):
-      # these reach us only as transitive deps of the `openclaw` devDependency,
-      # which ships its own npm-shrinkwrap.json. npm honors a dependency's
-      # shrinkwrap over our `overrides`, so no root-level change can move them.
-      # The blocker is that freeze, NOT the declaring range --
-      # @modelcontextprotocol/sdk asks for hono ^4.11.4 and the patched 4.12.34
-      # satisfies it. (@hono/node-server differs: patched 2.0.5 genuinely
-      # violates the sdk's ^1.19.9.) Dependabot reports fix_available:false and
-      # its security-update job exits 1 on every run.
+      # NOTE on hono / @hono/node-server: RESOLVED 2026-09-01 by moving openclaw
+      # to 2026.8.2. These reach us only as transitive deps of the `openclaw`
+      # devDependency. Until the 2026.8 line, openclaw shipped its own
+      # npm-shrinkwrap.json, and npm honors a dependency's shrinkwrap over our
+      # `overrides` -- so no root-level change could move them, Dependabot
+      # reported fix_available:false, and its security-update job exited 1 on
+      # every run. Ignoring them did not help either: a fully-ignored security
+      # update is the job error `all_versions_ignored`, also exit 1.
       #
-      # They are deliberately NOT ignored here. Ignoring them was tried and
-      # measured, and it does not green this lane -- for a reason worth stating
-      # precisely, because it is not the obvious one. The ignore DOES take
-      # effect, and early: the job short-circuits before any resolution runs --
+      # 2026.8.2 ships NO npm-shrinkwrap.json, so ordinary resolution applies
+      # again. Measured on the bump: hono 4.12.25 -> 4.13.5, @hono/node-server
+      # -> 2.1.1, tar 7.5.20 -> 7.5.22, all hoisted to the root rather than
+      # nested under node_modules/openclaw/. `npm audit` went 6 -> 0 (it had
+      # been 3 high / 2 moderate / 1 low), clearing all 7 Dependabot alerts.
+      # `overrides` are a working lever again if a future release regresses one.
       #
-      #   Checking if hono 4.12.25 needs updating
-      #   Ignored versions:  >= 0 - from .github/dependabot.yml
-      #   All updates for hono were ignored
-      #   | all_versions_ignored | null |
-      #   Error: Command failed with exit code 1
+      # Contributor note: openclaw 2026.8.2 declares a stricter engines.node
+      # than we do (>=22.22.3 <23 || >=24.15.0 <25 || >=25.9.0, and the dev
+      # tree's hosted-git-info excludes 25.x on top of that). That is a DEV
+      # floor only. This package's own engines.node stays >=22.19.0, matching
+      # peerDependencies openclaw >=2026.5.17 -- consumers on the
+      # extended-stable line must not be locked out by a devDependency.
       #
-      # -- but Dependabot classifies a fully-ignored security update as the job
-      # error `all_versions_ignored` and exits 1. So the lane is red either way:
-      # `security_update_not_possible` without the ignore,
-      # `all_versions_ignored` with it. Only dismissing the alerts silences it.
-      #
-      # Meanwhile a bare ignore IS shield-check scoped, and the job definition
-      # shows why: bare materializes as `version-requirement: ">= 0"`, while the
-      # `update-types` form materializes as `version-requirement: null` and is
-      # inert in a security job. So a bare entry here would have cost us
-      # security-update PRs for these packages. All cost, no benefit -- the red
-      # security lane is accepted instead.
-      #
-      # Expect the freeze to lift when the 2026.8 line goes stable:
-      # 2026.8.1-beta.1 ships NO npm-shrinkwrap.json at all, so ordinary
-      # resolution and `overrides` start working again there.
-      #
-      # openclaw is deliberately held at the extended-stable line (2026.6.34 --
-      # published 2026-08-04, i.e. a maintained backport NEWER than `latest`),
-      # whose shrinkwrap carries patched undici/ip-address/fast-uri. The 2026.7.x
-      # releases regressed those pins, so an auto-bump here would silently reopen
-      # 11 alerts, 5 of them high. `latest` is also a prerelease (2026.7.1-2) that
-      # does not satisfy our own peerDependency `openclaw: ">=2026.5.17"`.
+      # openclaw was previously held at the extended-stable line (2026.6.34)
+      # because the 2026.7.x releases regressed undici/ip-address/fast-uri and
+      # an auto-bump would have silently reopened 11 alerts, 5 of them high.
+      # 2026.8.2 does not: undici 8.10.0, ip-address 10.7.0, fast-uri 3.1.6 all
+      # resolve clean. The major/minor ignore is KEPT anyway, so the next line
+      # change (2026.9.x) arrives as a deliberate, measured bump rather than
+      # automatically -- that regression is why this pin exists.
       #
       # Scoped to version-updates ONLY, deliberately: a bare ignore here would
-      # also suppress security-update PRs for openclaw itself, so a direct CVE in
-      # openclaw would raise no PR and go unnoticed until someone read the
+      # also suppress security-update PRs for openclaw itself, so a direct CVE
+      # in openclaw would raise no PR and go unnoticed until someone read the
       # Security tab. update-types is version-scoped, leaving that lane intact.
       #
-      # semver-patch is deliberately NOT ignored, so the extended-stable line
-      # keeps flowing. openclaw is calver, so from 2026.6.34 a patch bump is
-      # 2026.6.35 -- another backport on the same line -- while 2026.7.x is
-      # semver-minor and 2027.x is semver-major, both still blocked. That line
-      # ships regularly (2026.6.33 on 2026-07-21, 2026.6.34 on 2026-08-04, the
-      # latter being the release that carries the patched pins), so ignoring
-      # patches would freeze out exactly the updates we want. There is no
-      # Dependabot auto-merge workflow in this repo, so a 2026.6.35 bump arrives
-      # as a reviewable PR, not an automatic one -- which is also the trip-wire
-      # for revisiting the pin, rather than relying on someone remembering to.
+      # semver-patch is deliberately NOT ignored, so patch backports on the
+      # current line keep flowing as reviewable PRs. There is no Dependabot
+      # auto-merge workflow in this repo, so such a bump is never automatic --
+      # which is also the trip-wire for revisiting this pin.
       - dependency-name: "openclaw"
         update-types:
           - "version-update:semver-major"
