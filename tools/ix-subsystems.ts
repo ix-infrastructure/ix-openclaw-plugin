@@ -1,4 +1,5 @@
 import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-subsystems";
 export const description =
@@ -15,6 +16,9 @@ export async function execute(
   context: ToolContext
 ): Promise<string> {
   const dir = toolDirectory(context);
+
+  const fast = await tryLlm(["subsystems"], dir);
+  if (fast) return `## ix-subsystems\n\n${fast}`;
 
   let raw: any;
   try {

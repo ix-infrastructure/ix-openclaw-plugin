@@ -1,4 +1,5 @@
 import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-rank";
 export const description =
@@ -44,6 +45,11 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const by = params.by ?? "dependents";
   const kind = params.kind ?? "class";
   const top = Math.min(params.top ?? 10, 50);
+
+  const llmArgs = ["rank", "--by", by, "--kind", kind, "--top", String(top)];
+  if (params.path) llmArgs.push("--path", params.path);
+  const fast = await tryLlm(llmArgs, dir);
+  if (fast) return `## ix-rank: ${by}/${kind}\n\n${fast}`;
 
   const args = ["rank", "--by", by, "--kind", kind, "--top", String(top), "--format", "json"];
   if (params.path) args.push("--path", params.path);

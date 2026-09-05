@@ -1,4 +1,5 @@
 import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-trace";
 export const description =
@@ -34,6 +35,11 @@ interface TraceNode {
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
+  const llmArgs = ["trace", params.symbol];
+  if (params.to) llmArgs.push("--to", params.to);
+  const fast = await tryLlm(llmArgs, dir);
+  if (fast) return `## ix-trace: ${params.symbol}\n\n${fast}`;
+
   const args = ["trace", params.symbol, "--format", "json"];
   if (params.to) args.push("--to", params.to);
 
