@@ -13,6 +13,9 @@ import { createHash } from "node:crypto";
 
 const HEALTH_TTL = 30_000; // 30 seconds
 const BRIEFING_TTL = 600_000; // 10 minutes
+// Whether @ix/pro is installed changes only on install/uninstall, so this is
+// cached far longer than the health check.
+const PRO_TTL = 3_600_000; // 1 hour
 const READ_CACHE_TTL = 300_000; // 5 minutes
 const ERROR_STORE = join(homedir(), ".local", "share", "ix", "plugin", "errors");
 const RATE_FILE = join(ERROR_STORE, "rate-limit.json");
@@ -175,4 +178,4 @@ export function captureErrorAsync(
   })();
 }
 
-export { BRIEFING_TTL, READ_CACHE_TTL };
+export { BRIEFING_TTL, PRO_TTL, READ_CACHE_TTL };
