@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure Inc.
+
 /**
  * ix-utils.ts — Shared utilities for Ix Memory OpenClaw hooks.
  *

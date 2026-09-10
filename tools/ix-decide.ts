@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure Inc.
+
 import { callRuntime } from "../runtime/client.ts";
 import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
