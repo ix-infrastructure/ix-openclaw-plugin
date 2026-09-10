@@ -1,4 +1,4 @@
-// Copyright 2026 Ix Infrastructure INC
+// Copyright 2026 Ix Infrastructure Inc.
 
 import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";

@@ -1,4 +1,4 @@
-// Copyright 2026 Ix Infrastructure INC
+// Copyright 2026 Ix Infrastructure Inc.
 
 import { execFile, spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";

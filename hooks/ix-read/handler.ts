@@ -1,4 +1,4 @@
-// Copyright 2026 Ix Infrastructure INC
+// Copyright 2026 Ix Infrastructure Inc.
 
 /**
  * ix-read — before_tool_call hook

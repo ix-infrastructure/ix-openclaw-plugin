@@ -1,4 +1,4 @@
-// Copyright 2026 Ix Infrastructure INC
+// Copyright 2026 Ix Infrastructure Inc.
 
 // `callRuntime` and `getRuntime` cleared their abort timer only after a
 // successful fetch, and `isRuntimeAvailable` never captured its timer at all.
