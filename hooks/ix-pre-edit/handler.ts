@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure INC
+
 /**
  * ix-pre-edit — before_tool_call hook
  *

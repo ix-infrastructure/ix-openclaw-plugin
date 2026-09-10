@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure INC
+
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { dirname, resolve as resolvePath, isAbsolute } from "node:path";
 

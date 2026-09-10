@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure INC
+
 // Ix#539 step 1: the plugin must tolerate an `ix` that exits non-zero while
 // still printing a useful body, before the CLI starts producing one.
 //

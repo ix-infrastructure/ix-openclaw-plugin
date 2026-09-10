@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure INC
+
 /**
  * ix-ingest — tool_result_persist hook (synchronous)
  *

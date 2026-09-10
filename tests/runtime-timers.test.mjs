@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure INC
+
 // `callRuntime` and `getRuntime` cleared their abort timer only after a
 // successful fetch, and `isRuntimeAvailable` never captured its timer at all.
 // When the runtime is unreachable the fetch rejects, so those timers stayed
