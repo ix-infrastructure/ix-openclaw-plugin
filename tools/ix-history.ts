@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure Inc.
+
 import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-history";

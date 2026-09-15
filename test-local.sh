@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright 2026 Ix Infrastructure Inc.
+
 # test-local.sh — Validate ix-openclaw-plugin structure and hook readiness
 # Run from anywhere: bash ~/ix/ix-openclaw-plugin/test-local.sh
 

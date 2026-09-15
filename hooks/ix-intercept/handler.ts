@@ -1,3 +1,5 @@
+// Copyright 2026 Ix Infrastructure Inc.
+
 /**
  * ix-intercept — before_tool_call hook
  *
