@@ -11,13 +11,14 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  BRIEFING_CLAIM_KEY,
   BRIEFING_MAX_CHARS,
   briefingAlreadyInjected,
   markBriefingInjected,
@@ -43,11 +44,19 @@ test("the first caller injects and the second does not", () => {
 });
 
 test("the claim expires with its window", () => {
-  isolateCache();
+  const dir = isolateCache();
 
   markBriefingInjected();
-  // A zero-length window is a window that has already passed.
-  assert.equal(briefingAlreadyInjected(0), false);
+  // Age the marker rather than waiting, and rather than asking whether a
+  // zero-length window has passed — a fresh file's mtime can round to just
+  // after `Date.now()`, which made that question answer "no" about one run in
+  // four. (The directory name is readCache's, which is what is being tested.)
+  const marker = path.join(dir, "ix-openclaw-cache", BRIEFING_CLAIM_KEY);
+  const aMinuteAgo = new Date(Date.now() - 60_000);
+  utimesSync(marker, aMinuteAgo, aMinuteAgo);
+
+  assert.equal(briefingAlreadyInjected(30_000), false, "a minute old, in a 30s window");
+  assert.equal(briefingAlreadyInjected(120_000), true, "a minute old, in a 2min window");
 });
 
 test("a briefing longer than the cap is cut and says so", () => {
