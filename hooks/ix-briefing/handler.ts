@@ -14,7 +14,9 @@ import {
   readCache,
   writeCache,
   captureErrorAsync,
-  BRIEFING_TTL,
+  briefingAlreadyInjected,
+  markBriefingInjected,
+  capBriefing,
   PRO_TTL,
 } from "../ix-utils.js";
 
@@ -22,9 +24,10 @@ const handler = async (event: any) => {
   if (event.type !== "message" || event.action !== "received") return;
   if (!ixAvailable()) return;
 
-  // Check briefing cache freshness
-  const cached = readCache("ix-briefing", BRIEFING_TTL);
-  if (cached) return;
+  // One injection per window, across both paths that do it — the plugin's
+  // before_prompt_build injects the same briefing, and used to do it on every
+  // prompt build.
+  if (briefingAlreadyInjected()) return;
 
   if (!(await ixHealthy())) return;
 
@@ -39,13 +42,21 @@ const handler = async (event: any) => {
   // we actually want is both the discriminator and the payload, so it also
   // saves an ix invocation.
   try {
-    const briefing = await runIx(["briefing", "--format", "json"]);
+    // text, not json: this is injected into a prompt for the model to read,
+    // never parsed. Measured on a real graph, the same briefing is 4,352 bytes
+    // as json and 1,305 as text. Not `llm` — briefing has no record renderer,
+    // which is why it is absent from runtime/llm.ts's version table, and `llm`
+    // routes to exactly this text anyway. Explicit, because the CLI's default
+    // format is configurable (IX_FORMAT / config.format).
+    const briefing = await runIx(["briefing", "--format", "text"]);
     writeCache("ix-pro-check", "1");
-    if (!briefing.trim()) return;
+    const text = capBriefing(briefing);
+    if (!text) return;
 
-    writeCache("ix-briefing", briefing);
+    writeCache("ix-briefing", text);
+    markBriefingInjected();
 
-    event.messages.push(`[ix] Session briefing:\n${briefing}`);
+    event.messages.push(`[ix] Session briefing:\n${text}`);
   } catch (err: any) {
     const message = String(err?.message ?? "");
     if (/requires Ix Pro/i.test(message)) {

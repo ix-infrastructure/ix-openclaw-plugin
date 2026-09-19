@@ -21,6 +21,7 @@ import * as ixStats from "../tools/ix-stats.ts";
 import * as ixSubsystems from "../tools/ix-subsystems.ts";
 import * as ixTrace from "../tools/ix-trace.ts";
 import { runIx, runIxDetached, type ToolContext } from "../tools/base.ts";
+import { briefingAlreadyInjected, markBriefingInjected, capBriefing } from "../hooks/ix-utils.ts";
 
 type ToolModule = {
   name: string;
@@ -140,9 +141,15 @@ async function handleBeforePromptBuild(_event: any, ctx: any) {
   const workspaceDir = normalizeWorkspaceDir(ctx?.workspaceDir);
   if (!workspaceDir) return;
 
+  // Once per window, and shared with the message:received hook, which injects
+  // the same briefing. This ran on EVERY prompt build: the cache stopped it
+  // re-running `ix briefing`, not re-injecting its ~1.3 KB of output.
+  if (briefingAlreadyInjected()) return;
+
   const briefing = await getBriefing(workspaceDir);
   if (!briefing) return;
 
+  markBriefingInjected();
   return {
     prependContext: `[ix] Session briefing:\n${briefing}`,
   };
@@ -225,11 +232,16 @@ async function getBriefing(workspaceDir: string): Promise<string | null> {
   }
 
   try {
-    const briefing = await runIx(["briefing", "--format", "json"], {
+    // text, not json: this goes into a prompt for the model to read, not into
+    // a parser. Measured on a real graph, the same briefing is 4,352 bytes as
+    // json and 1,305 as text. Not `llm` — briefing has no record renderer (see
+    // runtime/llm.ts's table) and `llm` routes to this same text. Explicit,
+    // because the CLI's default format is configurable.
+    const briefing = await runIx(["briefing", "--format", "text"], {
       cwd: workspaceDir,
       timeoutMs: 8000,
     });
-    const text = briefing.trim();
+    const text = capBriefing(briefing);
     briefingCache = {
       workspaceDir,
       fetchedAt: now,

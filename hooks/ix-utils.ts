@@ -15,6 +15,8 @@ import { createHash } from "node:crypto";
 
 const HEALTH_TTL = 30_000; // 30 seconds
 const BRIEFING_TTL = 600_000; // 10 minutes
+const BRIEFING_CLAIM_KEY = "ix-briefing-injected";
+const BRIEFING_MAX_CHARS = 2_000;
 // Whether @ix/pro is installed changes only on install/uninstall, so this is
 // cached far longer than the health check.
 const PRO_TTL = 3_600_000; // 1 hour
@@ -113,6 +115,37 @@ export function writeCache(key: string, value: string): void {
   }
 }
 
+/**
+ * Whether the one briefing injection allowed in this window has been used.
+ *
+ * Two independent paths inject the session briefing -- the plugin's
+ * `before_prompt_build` (`plugins/ix-plugin.ts`) and the `message:received`
+ * hook -- in different processes with different caches. The same ~1.3 KB went
+ * in twice on the first turn of a window, and again on every later prompt
+ * build. This marker is the shared claim, and it is deliberately a file: the
+ * two paths share nothing else.
+ */
+export function briefingAlreadyInjected(ttl: number = BRIEFING_TTL): boolean {
+  return readCache(BRIEFING_CLAIM_KEY, ttl) !== null;
+}
+
+/** Record that a briefing has just been injected. Call it when it really was. */
+export function markBriefingInjected(): void {
+  writeCache(BRIEFING_CLAIM_KEY, String(Date.now()));
+}
+
+/**
+ * Trim a briefing to something a prompt can carry.
+ *
+ * A briefing grows with the project -- goals, plans, recent decisions -- and it
+ * is injected unread, so nothing downstream bounds it.
+ */
+export function capBriefing(text: string, limit = BRIEFING_MAX_CHARS): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= limit) return trimmed;
+  return `${trimmed.slice(0, limit)}\n… (briefing truncated; run \`ix briefing\` for the rest)`;
+}
+
 /** Fingerprint for deduplication. */
 function fingerprint(type: string, component: string, message: string): string {
   const norm = `${type}|${component}|${message}`
@@ -180,4 +213,4 @@ export function captureErrorAsync(
   })();
 }
 
-export { BRIEFING_TTL, PRO_TTL, READ_CACHE_TTL };
+export { BRIEFING_TTL, BRIEFING_MAX_CHARS, PRO_TTL, READ_CACHE_TTL };
