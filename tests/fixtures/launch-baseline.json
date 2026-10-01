@@ -22,18 +22,18 @@
       "id": "search-interception",
       "status": "not_implemented_at_launch",
       "event": "before_tool_call",
-      "trigger": "Grep, Glob, Read, and Bash tool calls",
-      "launch_behavior": "No Ix context is injected for search tools. The handler returns no prompt augmentation, block, or approval request.",
+      "trigger": "read and exec tool calls (OpenClaw has no Grep or Glob tool)",
+      "launch_behavior": "No Ix context is injected for search tools. A before_tool_call handler can only rewrite params, block, or request approval (PluginHookBeforeToolCallResult); it has no field that adds context for the model.",
       "failure_mode": "Always a silent no-op at launch.",
       "claude_delta": "Claude front-runs Grep/Glob and grep-like Bash calls with Ix search context. OpenClaw does not yet replicate that behavior.",
-      "notes": "The `hooks/ix-intercept`, `hooks/ix-read`, and `hooks/ix-bash` directories are documentation remnants; runtime behavior is defined by `plugins/ix-plugin.ts`."
+      "notes": "The folder hooks that described this (`hooks/ix-intercept`, `hooks/ix-read`, `hooks/ix-bash`) subscribed to `before_tool_call`, which folder hooks never receive, and were removed in 2.4.2. Runtime behavior is defined by `plugins/ix-plugin.ts`."
     },
     {
       "id": "pre-edit-gate",
       "status": "implemented",
       "event": "before_tool_call",
-      "trigger": "Edit, Write, MultiEdit, and NotebookEdit on non-skipped paths",
-      "launch_behavior": "Runs `ix-decide` for the touched path. `BLOCK` returns `{ block: true, blockReason }`. `REVIEW` returns an OpenClaw approval request. `ALLOW` returns no intervention.",
+      "trigger": "OpenClaw `edit`, `write`, and `apply_patch` calls on non-skipped paths",
+      "launch_behavior": "Runs `ix-decide` for the touched paths (every file of an `apply_patch`; relative paths resolved against the agent workspace). `BLOCK` returns `{ block: true, blockReason }`. `REVIEW` returns an OpenClaw approval request. `ALLOW` returns no intervention.",
       "failure_mode": "Skips markdown, text, lockfiles, common binary assets, and compiled artifacts. If no target path is found, it returns no intervention.",
       "claude_delta": "Claude surfaces a warning-oriented pre-edit hook. OpenClaw launch baseline can hard-block or require explicit approval."
     },
@@ -41,7 +41,7 @@
       "id": "post-edit-ingest",
       "status": "implemented",
       "event": "after_tool_call",
-      "trigger": "Successful Edit, Write, MultiEdit, and NotebookEdit calls on non-skipped paths",
+      "trigger": "Successful `edit`, `write`, and `apply_patch` calls on non-skipped paths",
       "launch_behavior": "Requests the guarded root map (`runtime/auto-map.ts`): `ix map <git root> --silent` in the background with `IX_AUTO_MAP=1`, only when the edited file's directory (relative paths resolved against the agent workspace) is inside a git repo whose root is not $HOME, `ix status --format json --root <root>` reports `graphCompleted: true`, and no automatic map started for that root in the last 5 minutes. Never `ix map <file>`, which Ix rejects. No user-visible output is emitted.",
       "failure_mode": "Returns silently when the tool errored, the path is skipped, no target path can be derived, or any guard fails.",
       "claude_delta": "Functionally similar to Claude's async post-edit ingest hook."

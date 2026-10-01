@@ -15,6 +15,7 @@
  * Every invocation is appended to `calls.log` as one JSON line
  * ({argv, cwd, autoMap}). `ix status --format json --root <r>` reports
  * graphCompleted=true only for roots listed in `mapped-roots` (one per line).
+ * `ix impact <target>` answers from `impact.json` when a test set one.
  *
  * Nothing here talks to a backend: the fake never maps anything.
  */
@@ -80,6 +81,14 @@ switch (command) {
   case "connect":
     fail("error: unknown command '" + command + "'");
     break;
+  case "impact": {
+    // Canned per-target answers from impact.json ({"<target>": {...}}), else {}.
+    let canned = {};
+    try { canned = JSON.parse(readFileSync(path.join(dir, "impact.json"), "utf8")); } catch {}
+    const target = rest.find((arg) => !arg.startsWith("-") && arg !== "json");
+    process.stdout.write(JSON.stringify(canned[target] ?? {}) + "\\n");
+    break;
+  }
   case "--version":
     process.stdout.write("0.11.1\\n");
     break;
@@ -115,6 +124,10 @@ export function installFakeIx() {
     },
     mapCalls() {
       return this.calls().filter((call) => call.argv[0] === "map");
+    },
+    /** Answer `ix impact <target>` with `responses[target]` (ix-decide reads it). */
+    setImpact(responses) {
+      writeFileSync(path.join(dir, "impact.json"), JSON.stringify(responses));
     },
     setMapped(roots) {
       writeFileSync(path.join(dir, "mapped-roots"), roots.join("\n") + "\n");

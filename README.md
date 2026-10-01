@@ -84,7 +84,7 @@ Supported model strings: `anthropic/claude-sonnet-4-6`, `anthropic/claude-opus-4
 openclaw gateway restart
 ```
 
-**Ix Pro** is optional. All skills and hooks work with basic Ix. Pro adds session briefing injection (goals, bugs, decisions) via the `ix-briefing` hook.
+**Ix Pro** is optional. All skills and hooks work with basic Ix. Pro adds the session briefing (goals, bugs, decisions) that the plugin prepends to prompts.
 
 ## Skills
 
@@ -116,17 +116,20 @@ Autonomous multi-step agents for complex tasks:
 
 ## Automatic hooks
 
-| Event | Hook | Effect |
-|-------|------|--------|
-| `message:received` | `ix-briefing` | Injects session briefing (goals, bugs, decisions) once per 10 min — **requires Ix Pro** |
-| `before_tool_call` (Grep/Glob) | `ix-intercept` | Front-runs with `ix text` + `ix locate`/`ix inventory` |
-| `before_tool_call` (Read) | `ix-read` | Front-runs with `ix inventory` + `ix overview` for the file |
-| `before_tool_call` (Bash grep/rg) | `ix-bash` | Extracts pattern, front-runs with `ix text` + `ix locate` |
-| `before_tool_call` (Edit/Write) | `ix-pre-edit` | Runs `ix impact` before the edit |
-| `after_tool_call` (Edit/Write) | plugin | Requests the guarded root map (below) |
-| `session_end` | plugin | Requests the guarded root map for the agent workspace |
+All of them are typed plugin hooks (`api.on(...)` in `plugins/ix-plugin.ts`); the
+plugin ships no folder hooks.
+
+| Event | Tools | Effect |
+|-------|-------|--------|
+| `before_prompt_build` | — | Prepends the session briefing (goals, bugs, decisions), fetched at most once per 10 min per workspace — **requires Ix Pro** and `allowConversationAccess` (see Configuration) |
+| `before_tool_call` | `edit`, `write`, `apply_patch` | Runs `ix-decide` on the files being written: `BLOCK` blocks the call, `REVIEW` asks you to approve it, `ALLOW` is silent |
+| `after_tool_call` | `edit`, `write`, `apply_patch` | Requests the guarded root map (below) |
+| `session_end` | — | Requests the guarded root map for the agent workspace |
 
 All hooks bail silently if `ix` is not in PATH or the backend is unreachable.
+Search calls (`read`, `exec`) get no Ix context: an OpenClaw `before_tool_call`
+handler can block, rewrite or ask for approval, but cannot add context for the
+model.
 
 **Guarded root map.** Automatic refresh runs `ix map <git root> --silent` in the
 background (with `IX_AUTO_MAP=1`) only when the project is a git repo whose root
@@ -144,12 +147,18 @@ Plugin config in `~/.openclaw/openclaw.json`:
   "plugins": {
     "entries": {
       "ix-memory": {
-        "enabled": true
+        "enabled": true,
+        "hooks": { "allowConversationAccess": true }
       }
     }
   }
 }
 ```
+
+`allowConversationAccess` is needed only for the session briefing: OpenClaw
+drops a non-bundled plugin's `before_prompt_build` hook without it (`openclaw
+plugins inspect ix-memory --runtime` then reports the hook as blocked). Tools and
+the edit hooks work either way.
 
 ## Uninstall
 

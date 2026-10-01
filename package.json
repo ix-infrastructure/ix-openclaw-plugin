@@ -19,7 +19,6 @@
     "SOUL.md",
     "agents",
     "skills",
-    "hooks",
     "install.sh",
     "install.ps1",
     "test-local.sh"

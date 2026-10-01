@@ -1,6 +1,11 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import type {
+  AnyAgentTool,
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+} from "openclaw/plugin-sdk/plugin-entry";
 import { dirname, resolve as resolvePath, isAbsolute } from "node:path";
 
 import * as ixDocsTool from "../tools/ix-docs-tool.ts";
@@ -22,6 +27,7 @@ import * as ixSubsystems from "../tools/ix-subsystems.ts";
 import * as ixTrace from "../tools/ix-trace.ts";
 import { runIx, type ToolContext } from "../tools/base.ts";
 import { requestGuardedMap } from "../runtime/auto-map.ts";
+import { isWriteTool, WRITE_TOOL_NAMES, writeToolPaths } from "../runtime/host-tools.ts";
 
 type ToolModule = {
   name: string;
@@ -50,7 +56,6 @@ const IX_TOOLS: ToolModule[] = [
   ixSmells,
 ];
 
-const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const SKIP_EXT = /\.(md|txt|lock|png|jpg|jpeg|gif|ico|pdf|bin)$/i;
 const SKIP_COMPILED = /(__pycache__|\.pyc|\.class|\.o)$/;
 const BRIEFING_TTL_MS = 10 * 60 * 1000;
@@ -58,7 +63,7 @@ const BRIEFING_TTL_MS = 10 * 60 * 1000;
 // completes (denied approval, host crash) would otherwise stay forever.
 const PENDING_WRITE_PATHS_MAX = 256;
 
-const pendingWritePaths = new Map<string, string>();
+const pendingWritePaths = new Map<string, string[]>();
 let briefingCache:
   | {
       workspaceDir: string;
@@ -76,21 +81,28 @@ const ixMemoryPlugin: ReturnType<typeof definePluginEntry> = definePluginEntry({
   name: "Ix Memory",
   description:
     "Ix Memory integration — transforms your agent into a graph-reasoning engineer with cognitive skills for understanding, investigation, impact analysis, planning, debugging, architecture auditing, and deep documentation synthesis.",
-  register(api: any) {
+  register(api: OpenClawPluginApi) {
     for (const toolModule of IX_TOOLS) {
       registerTool(api, toolModule);
     }
 
     api.on("before_prompt_build", handleBeforePromptBuild, { priority: 50 });
-    api.on("before_tool_call", handleBeforeToolCall, { priority: 50 });
+    // `matcher` takes canonical OpenClaw tool ids and makes the host skip this
+    // handler for every other tool (hook-runner-global-ac8FBwry.js:32-56); the
+    // handlers still check, for hosts that predate the option.
+    api.on(
+      "before_tool_call",
+      (event, ctx) => handleBeforeToolCall(event, resolveAgentWorkspaceDir(api, ctx?.agentId)),
+      { priority: 50, matcher: WRITE_TOOL_NAMES }
+    );
     api.on(
       "after_tool_call",
-      (event: any, ctx: any) => handleAfterToolCall(event, resolveAgentWorkspaceDir(api, ctx?.agentId)),
-      { priority: 50 }
+      (event, ctx) => handleAfterToolCall(event, resolveAgentWorkspaceDir(api, ctx?.agentId)),
+      { priority: 50, matcher: WRITE_TOOL_NAMES }
     );
     api.on(
       "session_end",
-      (_event: any, ctx: any) => handleSessionEnd(resolveAgentWorkspaceDir(api, ctx?.agentId)),
+      (_event, ctx) => handleSessionEnd(resolveAgentWorkspaceDir(api, ctx?.agentId)),
       { priority: 50 }
     );
   },
@@ -98,53 +110,38 @@ const ixMemoryPlugin: ReturnType<typeof definePluginEntry> = definePluginEntry({
 
 export default ixMemoryPlugin;
 
-function registerTool(api: any, toolModule: ToolModule): void {
-  const definition = {
+/**
+ * Register one Ix tool the way OpenClaw loads it.
+ *
+ * The host keeps a plugin tool only if it has a `name`, an `execute` function
+ * and a `parameters` object (describeMalformedPluginTool,
+ * tools-mqHZh-rd.js:418-424); anything else is dropped with "plugin tool is
+ * malformed" (:949-960). `execute` is called as
+ * `(toolCallId, params, signal, onUpdate)` and returns an AgentToolResult,
+ * `{ content: [{ type: "text", text }], details }`
+ * (common-D6XCiVSU.d.ts:26-29, types-CTwueIyM.d.ts:114-147). The agent
+ * workspace reaches a tool only through a factory's OpenClawPluginToolContext
+ * (agent-harness-runtime-DMcVlRu_.d.ts:1876-1934), so each tool is a factory,
+ * named up front so the host can match it to `contracts.tools`
+ * (loader-DhyKX__3.js:3781-3800).
+ */
+function registerTool(api: OpenClawPluginApi, toolModule: ToolModule): void {
+  api.registerTool((ctx) => createAgentTool(toolModule, ctx), { name: toolModule.name });
+}
+
+function createAgentTool(toolModule: ToolModule, ctx: OpenClawPluginToolContext): AnyAgentTool {
+  const directory = normalizeWorkspaceDir(ctx?.workspaceDir) ?? process.cwd();
+  return {
     name: toolModule.name,
+    label: toolModule.name,
     description: toolModule.description,
-    inputSchema: toolModule.parameters,
-    execute: async (args: any, context: any) =>
-      toolModule.execute(args ?? {}, {
-        directory: resolveDirectory(context),
-        worktree: resolveWorktree(context),
-      }),
+    // Plain JSON Schema; the host only requires an object (see above).
+    parameters: toolModule.parameters as unknown as AnyAgentTool["parameters"],
+    async execute(_toolCallId, params) {
+      const text = await toolModule.execute(params ?? {}, { directory });
+      return { content: [{ type: "text", text }], details: {} };
+    },
   };
-
-  try {
-    api.registerTool(definition);
-    return;
-  } catch {
-    // Fall through and try common alternative SDK shapes.
-  }
-
-  try {
-    api.registerTool(toolModule.name, definition);
-    return;
-  } catch {
-    // Fall through.
-  }
-
-  api.registerTool(
-    toolModule.name,
-    toolModule.description,
-    toolModule.parameters,
-    definition.execute
-  );
-}
-
-function resolveDirectory(context: any): string {
-  return (
-    context?.directory ??
-    context?.cwd ??
-    context?.workspaceDir ??
-    context?.projectRoot ??
-    context?.context?.directory ??
-    process.cwd()
-  );
-}
-
-function resolveWorktree(context: any): string | undefined {
-  return context?.worktree ?? context?.repositoryRoot ?? context?.context?.worktree;
 }
 
 async function handleBeforePromptBuild(_event: any, ctx: any) {
@@ -159,22 +156,35 @@ async function handleBeforePromptBuild(_event: any, ctx: any) {
   };
 }
 
-async function handleBeforeToolCall(event: any) {
+/** The part of a before/after_tool_call event these handlers read. */
+type WriteToolEvent = {
+  toolName: string;
+  params: Record<string, unknown>;
+  toolCallId?: string;
+  derivedPaths?: readonly string[];
+  error?: string;
+};
+
+/**
+ * The pre-edit gate: ask ix-decide about the files an `edit`, `write` or
+ * `apply_patch` call is about to touch. BLOCK blocks the call, REVIEW asks the
+ * user, ALLOW is silent (PluginHookBeforeToolCallResult,
+ * hook-runner-global-y5_IazVW.d.ts:123-145). Relative paths are resolved
+ * against the agent workspace, where the host resolves them too.
+ */
+async function handleBeforeToolCall(event: WriteToolEvent, workspaceDir?: string) {
   const toolName = event?.toolName;
-  if (typeof toolName !== "string") return;
+  if (!isWriteTool(toolName)) return;
 
-  if (!WRITE_TOOLS.has(toolName)) return;
+  const targetPaths = resolveWritePaths(event, workspaceDir);
+  if (targetPaths.length === 0) return;
 
-  const targetPath = extractTargetPath(event);
-  if (!targetPath || shouldSkipPath(targetPath)) return;
-
-  const directory = directoryForTargetPath(targetPath);
   const verdict = await ixDecide.execute(
     {
-      touched_paths: [targetPath],
-      intent: toolName === "Write" ? "add" : "edit",
+      touched_paths: targetPaths,
+      intent: toolName === "write" ? "add" : "edit",
     },
-    { directory }
+    { directory: dirname(targetPaths[0]) }
   );
 
   const decision = parseDecisionVerdict(verdict);
@@ -185,25 +195,43 @@ async function handleBeforeToolCall(event: any) {
     };
   }
 
-  rememberWritePath(event?.toolCallId, targetPath);
+  rememberWritePaths(event?.toolCallId, targetPaths);
 
   if (decision === "REVIEW") {
+    const subject =
+      targetPaths.length === 1 ? displayName(targetPaths[0]) : `${targetPaths.length} files`;
     return {
       requireApproval: {
-        title: `Ix review required for ${displayName(targetPath)}`,
+        title: `Ix review required for ${subject}`,
         description: compactHookText(verdict),
-        severity: "warning",
+        severity: "warning" as const,
         timeoutMs: 120000,
-        timeoutBehavior: "deny",
-        allowedDecisions: ["allow-once", "deny"],
+        allowedDecisions: ["allow-once" as const, "deny" as const],
       },
     };
   }
 }
 
-function rememberWritePath(toolCallId: unknown, targetPath: string): void {
+/**
+ * Absolute, non-skipped paths a write-tool call touches. Relative paths need
+ * the agent workspace; without it they are dropped rather than guessed.
+ */
+function resolveWritePaths(event: WriteToolEvent, workspaceDir?: string): string[] {
+  const resolved = new Set<string>();
+  for (const raw of writeToolPaths(event?.toolName, event?.params, event?.derivedPaths)) {
+    const absolute = isAbsolute(raw)
+      ? raw
+      : workspaceDir
+        ? resolvePath(workspaceDir, raw)
+        : undefined;
+    if (absolute && !shouldSkipPath(absolute)) resolved.add(absolute);
+  }
+  return [...resolved];
+}
+
+function rememberWritePaths(toolCallId: unknown, targetPaths: string[]): void {
   if (toolCallId === undefined || toolCallId === null || toolCallId === "") return;
-  pendingWritePaths.set(String(toolCallId), targetPath);
+  pendingWritePaths.set(String(toolCallId), targetPaths);
   while (pendingWritePaths.size > PENDING_WRITE_PATHS_MAX) {
     const oldest = pendingWritePaths.keys().next().value;
     if (oldest === undefined) break;
@@ -211,33 +239,34 @@ function rememberWritePath(toolCallId: unknown, targetPath: string): void {
   }
 }
 
-function takeWritePath(toolCallId: unknown): string | undefined {
-  if (toolCallId === undefined || toolCallId === null || toolCallId === "") return undefined;
+function takeWritePaths(toolCallId: unknown): string[] {
+  if (toolCallId === undefined || toolCallId === null || toolCallId === "") return [];
   const key = String(toolCallId);
   const value = pendingWritePaths.get(key);
   pendingWritePaths.delete(key);
-  return value;
+  return value ?? [];
 }
 
 /**
  * After a successful write, ask for the guarded root map — never `ix map
  * <file>`, which Ix rejects ("Map path is not a directory"). The project dir is
- * the edited file's directory (a relative path is resolved against the agent
+ * each written file's directory (a relative path is resolved against the agent
  * workspace); requestGuardedMap turns it into the git root and applies every
- * other guard. Fire-and-forget: nothing here may hold up the tool result.
+ * other guard, including the per-root debounce. Fire-and-forget: nothing here
+ * may hold up the tool result.
  */
-function handleAfterToolCall(event: any, workspaceDir?: string) {
-  const toolName = event?.toolName;
-  if (!WRITE_TOOLS.has(toolName)) return;
-  const remembered = takeWritePath(event?.toolCallId);
+function handleAfterToolCall(event: WriteToolEvent, workspaceDir?: string) {
+  if (!isWriteTool(event?.toolName)) return;
+  const remembered = takeWritePaths(event?.toolCallId);
   if (event?.error) return;
 
-  const targetPath = extractTargetPath(event) ?? remembered;
-  if (!targetPath || shouldSkipPath(targetPath)) return;
-
-  const projectDir = projectDirForTargetPath(targetPath, workspaceDir);
-  if (!projectDir) return;
-  void requestGuardedMap(projectDir);
+  const targetPaths = resolveWritePaths(event, workspaceDir);
+  const projectDirs = new Set(
+    (targetPaths.length > 0 ? targetPaths : remembered).map((targetPath) => dirname(targetPath))
+  );
+  for (const projectDir of projectDirs) {
+    void requestGuardedMap(projectDir);
+  }
 }
 
 /**
@@ -255,24 +284,19 @@ function handleSessionEnd(workspaceDir?: string) {
  * `runtime.agent.resolveAgentWorkspaceDir(config, agentId)`. Undefined when the
  * host does not expose it or no agent id is known.
  */
-function resolveAgentWorkspaceDir(api: any, agentId: unknown): string | undefined {
+function resolveAgentWorkspaceDir(api: OpenClawPluginApi, agentId: unknown): string | undefined {
   if (typeof agentId !== "string" || !agentId.trim()) return undefined;
   try {
     const resolve = api?.runtime?.agent?.resolveAgentWorkspaceDir;
     if (typeof resolve !== "function") return undefined;
-    const config = api?.runtime?.config?.current?.() ?? api?.config;
+    // current() is typed DeepReadonly<OpenClawConfig>; the resolver only reads it.
+    const config = (api?.runtime?.config?.current?.() ?? api?.config) as OpenClawPluginApi["config"];
     if (!config) return undefined;
     const dir = resolve(config, agentId);
     return typeof dir === "string" && dir.trim() ? dir : undefined;
   } catch {
     return undefined;
   }
-}
-
-function projectDirForTargetPath(targetPath: string, workspaceDir?: string): string | undefined {
-  if (isAbsolute(targetPath)) return dirname(targetPath);
-  if (!workspaceDir) return undefined;
-  return dirname(resolvePath(workspaceDir, targetPath));
 }
 
 async function getBriefing(workspaceDir: string): Promise<string | null> {
@@ -309,31 +333,6 @@ async function getBriefing(workspaceDir: string): Promise<string | null> {
 
 function normalizeWorkspaceDir(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
-}
-
-function extractTargetPath(event: any): string | undefined {
-  const derived = Array.isArray(event?.derivedPaths)
-    ? event.derivedPaths.find((value: unknown) => typeof value === "string" && value.trim())
-    : undefined;
-  if (typeof derived === "string") return derived;
-
-  const params = event?.params ?? {};
-  const directCandidates = [
-    params.file_path,
-    params.path,
-    params.target,
-    params.cwd,
-  ];
-  for (const candidate of directCandidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate;
-  }
-
-  return undefined;
-}
-
-function directoryForTargetPath(targetPath: string): string {
-  const absolute = isAbsolute(targetPath) ? targetPath : resolvePath(targetPath);
-  return dirname(absolute);
 }
 
 function shouldSkipPath(targetPath: string): boolean {

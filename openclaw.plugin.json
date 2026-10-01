@@ -31,7 +31,6 @@
   },
   "uiHints": {},
   "skills": ["skills"],
-  "hooks": ["hooks"],
   "activation": {
     "onStartup": true
   }
