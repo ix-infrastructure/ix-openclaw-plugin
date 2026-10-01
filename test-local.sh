@@ -96,34 +96,17 @@ grep -q "./dist/plugins/ix-plugin.js" "$REPO/package.json" \
 
 echo ""
 
-# ── 6. Validate hooks ───────────────────────────────────────────────────────
+# ── 6. Folder hooks are gone ────────────────────────────────────────────────
+# Behaviour lives on the plugin's typed api.on handlers (plugins/ix-plugin.ts).
+# Folder hooks only receive internal events such as message:received, so the
+# old before_tool_call / tool_result_persist / agent_end ones never fired.
 echo "── Hooks ──"
-for hook in ix-briefing ix-intercept ix-read ix-bash ix-pre-edit ix-ingest ix-map; do
-  HOOK_DIR="$REPO/hooks/$hook"
-  if [ -d "$HOOK_DIR" ]; then
-    [ -f "$HOOK_DIR/HOOK.md" ]    && ok "$hook/HOOK.md"    || fail "$hook: missing HOOK.md"
-    [ -f "$HOOK_DIR/handler.ts" ] && ok "$hook/handler.ts" || fail "$hook: missing handler.ts"
-  else
-    fail "missing hook directory: hooks/$hook/"
-  fi
-done
-
-[ -f "$REPO/hooks/ix-utils.ts" ] \
-  && ok "ix-utils.ts (shared utilities)" \
-  || fail "missing: hooks/ix-utils.ts"
-
-echo ""
-
-# ── 7. Check for stale files ────────────────────────────────────────────────
-echo "── Checking for stale files ──"
-STALE=0
-for f in "$REPO/hooks/"*.sh "$REPO/hooks/hooks.json"; do
-  if [ -f "$f" ]; then
-    fail "stale file: $(basename "$f")"
-    STALE=1
-  fi
-done
-[ "$STALE" -eq 0 ] && ok "no stale shell hooks or hooks.json"
+[ ! -e "$REPO/hooks" ] \
+  && ok "no folder hooks (typed hooks live in plugins/ix-plugin.ts)" \
+  || fail "stale hooks/ directory: folder hooks are not used"
+grep -q '"hooks"' "$REPO/openclaw.plugin.json" \
+  && fail "openclaw.plugin.json still points at a hooks directory" \
+  || ok "manifest declares no hook directories"
 
 echo ""
 

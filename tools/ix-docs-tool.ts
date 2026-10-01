@@ -1,7 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
-import { IxCommandError, previewMarkdown, runIx, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { IxCommandError, runIx, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-docs-tool";
 export const description =
@@ -32,20 +31,6 @@ interface Params {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   const depth = params.depth ?? "standard";
-  const runtimeResult = await callRuntime(
-    "/v2/ix_query",
-    {
-      query: {
-        mode: "docs",
-        depth: { brief: "shallow", standard: "medium", full: "deep" }[depth],
-        targets: [{ kind: "path", value: params.target }],
-      },
-    },
-    { dir }
-  );
-  const runtimeMarkdown = previewMarkdown(runtimeResult);
-  if (runtimeMarkdown) return runtimeMarkdown;
-
   const [locateOut, overviewOut, statsOut] = await Promise.all([
     safeRun(["locate", params.target, "--format", "json"], dir),
     safeRun(["overview", params.target, "--format", "json"], dir),

@@ -1,6 +1,5 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
 import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-decide";
@@ -49,58 +48,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const intent = params.intent ?? "edit";
   const riskTolerance = params.risk_tolerance ?? "medium";
 
-  const runtimeResult = await callRuntime(
-    "/v2/ix_decide",
-    {
-      proposal: {
-        intent,
-        touched_paths: params.touched_paths,
-        risk_tolerance: riskTolerance,
-      },
-    },
-    { dir }
-  );
-
-  if (runtimeResult) {
-    return formatRuntimeVerdict(params.touched_paths, runtimeResult);
-  }
-
-  return formatImpactFallback(params.touched_paths, intent, riskTolerance, dir);
+  return formatImpactVerdict(params.touched_paths, intent, riskTolerance, dir);
 }
 
-function formatRuntimeVerdict(paths: string[], result: Record<string, unknown>): string {
-  const decision = asRecord(result.decision);
-  const impact = asRecord(result.impact);
-  const verdict = String(decision?.verdict ?? "REVIEW").toUpperCase();
-  const reason = String(decision?.reason ?? "See impact data below.");
-  const requiredActions = Array.isArray(decision?.required_actions)
-    ? decision.required_actions.map(String)
-    : [];
-
-  const lines = [
-    `## ix-decide: ${paths.length === 1 ? paths[0] : `${paths.length} files`}`,
-    "",
-    `**Verdict:** ${verdict}`,
-    `**Reason:** ${reason}`,
-  ];
-
-  if (impact?.risk_level) lines.push(`**Risk:** ${String(impact.risk_level).toUpperCase()}`);
-  if (typeof impact?.direct_dependents === "number") {
-    lines.push(`**Direct dependents:** ${impact.direct_dependents}`);
-  }
-  if (impact?.crosses_architectural_boundary) {
-    lines.push("⚠ **Crosses architectural boundary**");
-  }
-
-  if (requiredActions.length > 0) {
-    lines.push("", "**Required actions:**");
-    for (const action of requiredActions) lines.push(`- ${action}`);
-  }
-
-  return lines.join("\n");
-}
-
-async function formatImpactFallback(
+async function formatImpactVerdict(
   paths: string[],
   intent: string,
   riskTolerance: string,
@@ -180,10 +131,6 @@ async function formatImpactFallback(
     }
   }
 
-  lines.push("", "_[Runtime unavailable — verdict synthesized from ix impact fallback]_");
+  lines.push("", "_[Verdict synthesized from ix impact]_");
   return lines.join("\n");
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }

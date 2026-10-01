@@ -50,7 +50,7 @@ test.afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-test("all tools return strings when the runtime is unavailable", async () => {
+test("all tools return strings when the backend is unavailable", async () => {
   globalThis.fetch = async () => {
     throw new Error("offline");
   };

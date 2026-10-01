@@ -1,9 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
 import {
   ixUnavailableMessage,
-  previewMarkdown,
   runIxJson,
   ToolContext,
   toolDirectory,
@@ -43,19 +41,6 @@ interface CallersResult {
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
-
-  const runtimeResult = await callRuntime(
-    "/v2/ix_query",
-    {
-      query: {
-        mode: "impact",
-        targets: [{ kind: "path", value: params.target }],
-      },
-    },
-    { dir }
-  );
-  const runtimeMarkdown = previewMarkdown(runtimeResult);
-  if (runtimeMarkdown) return runtimeMarkdown;
 
   let impact: ImpactResult;
   try {

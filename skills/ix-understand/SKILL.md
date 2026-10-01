@@ -22,7 +22,7 @@ timeout 60s ix rank --by callers   --kind function --top 10 --exclude-path test 
 
 If `$ARGUMENTS` is non-empty, also run:
 ```bash
-timeout 60s ix locate "$ARGUMENTS" --limit 5 --format llm
+timeout 60s ix locate "$ARGUMENTS" --format llm
 ```
 
 Extract from subsystems: region names, file counts, cohesion scores.

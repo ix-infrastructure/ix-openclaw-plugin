@@ -1,7 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
-import { previewMarkdown, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-map";
 export const description =
@@ -30,20 +29,6 @@ interface Params {
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
-  const runtimeResult = await callRuntime(
-    "/v2/ix_query",
-    {
-      query: {
-        mode: "understand",
-        depth: "shallow",
-        targets: params.scope ? [{ kind: "path", value: params.scope }] : [],
-      },
-    },
-    { dir }
-  );
-  const runtimeMarkdown = previewMarkdown(runtimeResult);
-  if (runtimeMarkdown) return runtimeMarkdown;
-
   const includeStats = params.include_stats !== false;
   const [subsystems, subsystemList, stats] = await Promise.all([
     fetchSubsystems(dir, params.scope),

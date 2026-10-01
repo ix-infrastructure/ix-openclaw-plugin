@@ -14,7 +14,7 @@
       "status": "implemented",
       "event": "before_prompt_build",
       "trigger": "Prompt build with a non-empty workspaceDir",
-      "launch_behavior": "Calls `ix briefing --format json`, caches the result for 10 minutes per workspace, and prepends `[ix] Session briefing:` plus the JSON payload when briefing data is available.",
+      "launch_behavior": "Calls `ix briefing --format text`, caches the result for 10 minutes per workspace, and prepends `[ix] Session briefing:` plus the text, capped at 2,000 characters, on the first prompt build per workspace in each 10-minute window when briefing data is available.",
       "failure_mode": "Returns no injection when workspaceDir is absent, Ix Pro is unavailable, or the briefing call fails.",
       "claude_delta": "Claude triggers briefing on `UserPromptSubmit` and also instructs Claude to append a final Ix summary when hooks helped. OpenClaw launch baseline only prepends context."
     },
@@ -22,18 +22,18 @@
       "id": "search-interception",
       "status": "not_implemented_at_launch",
       "event": "before_tool_call",
-      "trigger": "Grep, Glob, Read, and Bash tool calls",
-      "launch_behavior": "No Ix context is injected for search tools. The handler records a target path when one is available, but returns no prompt augmentation, block, or approval request.",
+      "trigger": "read and exec tool calls (OpenClaw has no Grep or Glob tool)",
+      "launch_behavior": "No Ix context is injected for search tools. A before_tool_call handler can only rewrite params, block, or request approval (PluginHookBeforeToolCallResult); it has no field that adds context for the model.",
       "failure_mode": "Always a silent no-op at launch.",
       "claude_delta": "Claude front-runs Grep/Glob and grep-like Bash calls with Ix search context. OpenClaw does not yet replicate that behavior.",
-      "notes": "The `hooks/ix-intercept`, `hooks/ix-read`, and `hooks/ix-bash` directories are documentation remnants; runtime behavior is defined by `plugins/ix-plugin.ts`."
+      "notes": "The folder hooks that described this (`hooks/ix-intercept`, `hooks/ix-read`, `hooks/ix-bash`) subscribed to `before_tool_call`, which folder hooks never receive, and were removed in 2.4.2. Runtime behavior is defined by `plugins/ix-plugin.ts`."
     },
     {
       "id": "pre-edit-gate",
       "status": "implemented",
       "event": "before_tool_call",
-      "trigger": "Edit, Write, MultiEdit, and NotebookEdit on non-skipped paths",
-      "launch_behavior": "Runs `ix-decide` for the touched path. `BLOCK` returns `{ block: true, blockReason }`. `REVIEW` returns an OpenClaw approval request. `ALLOW` returns no intervention.",
+      "trigger": "OpenClaw `edit`, `write`, and `apply_patch` calls on non-skipped paths",
+      "launch_behavior": "Runs `ix-decide` for the touched paths (every file of an `apply_patch`; relative paths resolved against the agent workspace). `BLOCK` returns `{ block: true, blockReason }`. `REVIEW` returns an OpenClaw approval request. `ALLOW` returns no intervention.",
       "failure_mode": "Skips markdown, text, lockfiles, common binary assets, and compiled artifacts. If no target path is found, it returns no intervention.",
       "claude_delta": "Claude surfaces a warning-oriented pre-edit hook. OpenClaw launch baseline can hard-block or require explicit approval."
     },
@@ -41,18 +41,18 @@
       "id": "post-edit-ingest",
       "status": "implemented",
       "event": "after_tool_call",
-      "trigger": "Successful Edit, Write, MultiEdit, and NotebookEdit calls on non-skipped paths",
-      "launch_behavior": "Runs `ix map <targetPath>` asynchronously via `runIxDetached(...)`. No user-visible output is emitted.",
-      "failure_mode": "Returns silently when the tool errored, the path is skipped, or no target path can be derived.",
+      "trigger": "Successful `edit`, `write`, and `apply_patch` calls on non-skipped paths",
+      "launch_behavior": "Requests the guarded root map (`runtime/auto-map.ts`): `ix map <git root> --silent` in the background with `IX_AUTO_MAP=1`, only when the edited file's directory (relative paths resolved against the agent workspace) is inside a git repo whose root is not $HOME, `ix status --format json --root <root>` reports `graphCompleted: true`, and no automatic map started for that root in the last 5 minutes. Never `ix map <file>`, which Ix rejects. No user-visible output is emitted.",
+      "failure_mode": "Returns silently when the tool errored, the path is skipped, no target path can be derived, or any guard fails.",
       "claude_delta": "Functionally similar to Claude's async post-edit ingest hook."
     },
     {
       "id": "session-end-map",
       "status": "implemented",
       "event": "session_end",
-      "trigger": "OpenClaw session end with a `sessionFile` path",
-      "launch_behavior": "Runs `ix map` asynchronously in the directory that contains the session file. No user-visible output is emitted.",
-      "failure_mode": "Returns silently when `sessionFile` is missing.",
+      "trigger": "OpenClaw session end with an agent id whose workspace the SDK resolves (`runtime.agent.resolveAgentWorkspaceDir`)",
+      "launch_behavior": "Requests the same guarded root map for the agent's workspace directory. The session transcript directory is never mapped. No user-visible output is emitted.",
+      "failure_mode": "Returns silently when the workspace cannot be resolved or any guard fails.",
       "claude_delta": "Claude runs a graph refresh on `Stop` and also has a separate final Ix annotation hook. OpenClaw launch baseline refreshes the graph only."
     }
   ]

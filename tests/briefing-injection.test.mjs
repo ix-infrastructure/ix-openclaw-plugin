@@ -1,125 +1,207 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 /**
- * The session briefing goes in once per window.
+ * The session briefing goes in once per window, per workspace.
  *
- * Two paths inject it — the plugin's `before_prompt_build` and the
- * `message:received` hook — in different processes with different caches. The
- * plugin's ran on every prompt build: its cache stopped it re-running
- * `ix briefing`, not re-injecting the output. The marker these two now share is
- * what makes it once.
+ * The plugin's `before_prompt_build` is the one path that injects it. It used
+ * to inject on every prompt build: its cache stopped it re-running
+ * `ix briefing`, not re-injecting the output. The claim in runtime/briefing.ts
+ * is what makes it once.
+ *
+ * Every `ix` call goes to the strict fake in tests/fake-ix.mjs.
  */
 
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, utimesSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
+import { installFakeIx } from "./fake-ix.mjs";
+import entry from "../dist/plugins/ix-plugin.js";
 import {
-  BRIEFING_CLAIM_KEY,
   BRIEFING_MAX_CHARS,
-  briefingAlreadyInjected,
-  markBriefingInjected,
+  BRIEFING_TTL_MS,
   capBriefing,
-} from "../dist/hooks/ix-utils.js";
+  claimBriefing,
+  releaseBriefingClaim,
+  resetBriefingClaims,
+} from "../dist/runtime/briefing.js";
 
-const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const HEADER = "[ix] Session briefing:\n";
+const BRIEFING = "Ix Briefing\n  Revision: 2741\n  Goals: ship the plugin\n";
 
-/** The cache lives under $TMPDIR, so each case gets its own. */
-function isolateCache() {
-  const dir = mkdtempSync(path.join(tmpdir(), "ix-openclaw-test-"));
-  process.env.TMPDIR = dir;
-  return dir;
+function beforePromptBuild() {
+  let handler;
+  entry.register({
+    registerTool() {},
+    on(name, fn) {
+      if (name === "before_prompt_build") handler = fn;
+    },
+  });
+  return (workspaceDir) => handler({ prompt: "hi", messages: [] }, { workspaceDir });
 }
 
-test("the first caller injects and the second does not", () => {
-  isolateCache();
+/**
+ * Fresh workspaces and a fake `ix`. Every case uses workspaces of its own, so
+ * neither the claims nor getBriefing's per-workspace cache carry over.
+ */
+function sandbox() {
+  resetBriefingClaims();
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "ix-briefing-")));
+  const ix = installFakeIx();
+  return {
+    ix,
+    /** A new, existing workspace directory. */
+    workspace(prefix) {
+      return mkdtempSync(path.join(dir, prefix));
+    },
+    briefingCalls() {
+      return ix.calls().filter((call) => call.argv[0] === "briefing");
+    },
+    restore() {
+      ix.restore();
+      resetBriefingClaims();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
 
-  assert.equal(briefingAlreadyInjected(), false);
-  markBriefingInjected();
-  assert.equal(briefingAlreadyInjected(), true);
-  assert.equal(briefingAlreadyInjected(), true);
+// ── before_prompt_build ────────────────────────────────────────────────────
+
+test("the first prompt build in a window injects, as text, and later ones do not", async () => {
+  const env = sandbox();
+  try {
+    env.ix.setBriefing(BRIEFING);
+    const build = beforePromptBuild();
+    const workspace = env.workspace("once-");
+
+    const first = await build(workspace);
+    assert.equal(first?.prependContext, HEADER + BRIEFING.trim());
+    assert.equal(await build(workspace), undefined);
+    assert.equal(await build(workspace), undefined);
+
+    // text, not json: nothing parses it -- it is pasted into a prompt, and the
+    // same briefing measured 4,352 bytes as json against 1,305 as text.
+    const calls = env.briefingCalls();
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].argv, ["briefing", "--format", "text"]);
+    assert.equal(calls[0].cwd, workspace);
+  } finally {
+    env.restore();
+  }
 });
+
+test("overlapping prompt builds inject once", async () => {
+  const env = sandbox();
+  try {
+    env.ix.setBriefing(BRIEFING);
+    const build = beforePromptBuild();
+    const workspace = env.workspace("overlap-");
+
+    const results = await Promise.all([build(workspace), build(workspace), build(workspace)]);
+    assert.equal(results.filter((result) => result?.prependContext).length, 1);
+  } finally {
+    env.restore();
+  }
+});
+
+test("one workspace's window does not suppress another's", async () => {
+  const env = sandbox();
+  try {
+    env.ix.setBriefing(BRIEFING);
+    const build = beforePromptBuild();
+    const a = env.workspace("a-");
+    const b = env.workspace("b-");
+
+    assert.ok((await build(a))?.prependContext);
+    assert.ok((await build(b))?.prependContext, "b has its own window");
+    assert.equal(await build(a), undefined);
+    assert.equal(await build(b), undefined);
+  } finally {
+    env.restore();
+  }
+});
+
+test("no briefing (Ix Pro absent) injects nothing and does not use up the window", async () => {
+  const env = sandbox();
+  try {
+    const build = beforePromptBuild();
+    const workspace = env.workspace("no-pro-");
+
+    assert.equal(await build(workspace), undefined);
+    assert.notEqual(claimBriefing(workspace), null, "the claim was handed back");
+  } finally {
+    env.restore();
+  }
+});
+
+test("a briefing over the cap is cut before it reaches the prompt", async () => {
+  const env = sandbox();
+  try {
+    env.ix.setBriefing("x".repeat(BRIEFING_MAX_CHARS * 3));
+    const build = beforePromptBuild();
+    const workspace = env.workspace("cap-");
+
+    const context = (await build(workspace))?.prependContext;
+    assert.ok(context);
+    assert.ok(context.startsWith(HEADER + "x".repeat(BRIEFING_MAX_CHARS)));
+    assert.ok(!context.includes("x".repeat(BRIEFING_MAX_CHARS + 1)));
+    assert.match(context, /briefing truncated/);
+  } finally {
+    env.restore();
+  }
+});
+
+// ── the claim ──────────────────────────────────────────────────────────────
 
 test("the claim expires with its window", () => {
-  const dir = isolateCache();
+  resetBriefingClaims();
+  const root = "/projects/expiry";
+  const t0 = 1_000_000;
 
-  markBriefingInjected();
-  // Age the marker rather than waiting, and rather than asking whether a
-  // zero-length window has passed — a fresh file's mtime can round to just
-  // after `Date.now()`, which made that question answer "no" about one run in
-  // four. (The directory name is readCache's, which is what is being tested.)
-  const marker = path.join(dir, "ix-openclaw-cache", BRIEFING_CLAIM_KEY);
-  const aMinuteAgo = new Date(Date.now() - 60_000);
-  utimesSync(marker, aMinuteAgo, aMinuteAgo);
+  assert.equal(claimBriefing(root, t0), t0);
+  assert.equal(claimBriefing(root, t0 + 1), null);
+  assert.equal(claimBriefing(root, t0 + BRIEFING_TTL_MS - 1), null, "still inside the window");
+  assert.equal(claimBriefing(root, t0 + BRIEFING_TTL_MS), t0 + BRIEFING_TTL_MS, "window over");
 
-  assert.equal(briefingAlreadyInjected(30_000), false, "a minute old, in a 30s window");
-  assert.equal(briefingAlreadyInjected(120_000), true, "a minute old, in a 2min window");
+  // The window is the caller's: a minute-old claim has expired in a 30s
+  // window and holds in a 2min one.
+  const t1 = t0 + BRIEFING_TTL_MS + 60_000;
+  assert.equal(claimBriefing(root, t1, 30_000), t1);
+  assert.equal(claimBriefing(root, t1 + 60_000, 120_000), null);
+  assert.equal(claimBriefing(root, t1 + 60_000, 30_000), t1 + 60_000);
+  resetBriefingClaims();
 });
+
+test("a released claim frees the window, but only its own", () => {
+  resetBriefingClaims();
+  const root = "/projects/release";
+
+  const first = claimBriefing(root, 1_000);
+  releaseBriefingClaim(root, first);
+  const second = claimBriefing(root, 2_000);
+  assert.equal(second, 2_000, "released, so claimable again");
+
+  // A stale release (from a claim already replaced) leaves the newer one.
+  releaseBriefingClaim(root, first);
+  assert.equal(claimBriefing(root, 3_000), null);
+  resetBriefingClaims();
+});
+
+// ── the cap ────────────────────────────────────────────────────────────────
 
 test("a briefing longer than the cap is cut and says so", () => {
   const long = "x".repeat(BRIEFING_MAX_CHARS + 500);
   const capped = capBriefing(long);
 
   assert.ok(capped.length < long.length);
-  assert.ok(capped.startsWith("x".repeat(100)));
+  assert.ok(capped.startsWith("x".repeat(BRIEFING_MAX_CHARS)));
   assert.match(capped, /briefing truncated/);
 });
 
 test("a briefing within the cap is passed through, trimmed", () => {
   assert.equal(capBriefing("  Ix Briefing\n  Revision: 2741  "), "Ix Briefing\n  Revision: 2741");
+  assert.equal(capBriefing("x".repeat(BRIEFING_MAX_CHARS)), "x".repeat(BRIEFING_MAX_CHARS));
   assert.equal(capBriefing("   "), "");
-});
-
-test("both injection paths ask the CLI for text, not json", () => {
-  // json is 4,352 bytes against 1,305 for the same briefing, and nothing here
-  // parses it — it is pasted into a prompt.
-  const sources = [
-    path.join(projectRoot, "plugins", "ix-plugin.ts"),
-    path.join(projectRoot, "hooks", "ix-briefing", "handler.ts"),
-  ];
-  for (const file of sources) {
-    const text = readFileSync(file, "utf8");
-    assert.match(text, /"briefing", "--format", "text"/, `${path.basename(file)} should ask for text`);
-    assert.doesNotMatch(
-      text,
-      /"briefing", "--format", "json"/,
-      `${path.basename(file)} should not ask for json`,
-    );
-  }
-});
-
-test("both injection paths consult the shared marker", () => {
-  const sources = [
-    path.join(projectRoot, "plugins", "ix-plugin.ts"),
-    path.join(projectRoot, "hooks", "ix-briefing", "handler.ts"),
-  ];
-  for (const file of sources) {
-    const text = readFileSync(file, "utf8");
-    assert.match(text, /briefingAlreadyInjected\(/, `${path.basename(file)} should check the marker`);
-    assert.match(text, /markBriefingInjected\(/, `${path.basename(file)} should set the marker`);
-  }
-});
-
-test("no hook is left reading the old per-path briefing gate", () => {
-  // The hook used to gate on its own `ix-briefing` cache entry, which the
-  // plugin path knew nothing about.
-  const hooksDir = path.join(projectRoot, "hooks");
-  for (const entry of readdirSync(hooksDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const handler = path.join(hooksDir, entry.name, "handler.ts");
-    let text;
-    try {
-      text = readFileSync(handler, "utf8");
-    } catch {
-      continue;
-    }
-    assert.doesNotMatch(
-      text,
-      /readCache\("ix-briefing",/,
-      `${entry.name} should use the shared marker, not its own briefing cache`,
-    );
-  }
 });

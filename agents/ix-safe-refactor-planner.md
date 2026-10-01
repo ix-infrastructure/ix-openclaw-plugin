@@ -18,7 +18,7 @@ Work through targets methodically. Build the plan incrementally — do not outpu
 
 Parse the input as a list of targets (files or symbols). If the input is a description, first resolve:
 ```bash
-ix locate "$INPUT" --limit 5 --format llm
+ix locate "$INPUT" --format llm
 ix text   "$INPUT" --limit 10 --format llm
 ```
 

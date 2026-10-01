@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -56,15 +56,6 @@ export function runIx(args: string[], options: RunIxOptions): Promise<string> {
   });
 }
 
-export function runIxDetached(args: string[], cwd?: string): void {
-  const child = spawn("ix", args, {
-    cwd,
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-}
-
 export async function runIxJson<T>(
   args: string[],
   options: RunIxOptions
@@ -85,10 +76,6 @@ export function parseIxJson<T>(raw: string): T {
   }
 
   throw new Error("Failed to parse ix JSON output");
-}
-
-export function previewMarkdown(result: Record<string, unknown> | null): string | null {
-  return typeof result?.preview_markdown === "string" ? result.preview_markdown : null;
 }
 
 export function ixUnavailableMessage(title: string, body?: string, error?: string): string {

@@ -88,14 +88,10 @@ agents/
   ix-safe-refactor-planner.md — refactor safety planning
   ix-architecture-auditor.md — structural health audit
 
-hooks/
-  ix-briefing/               — message:received: inject session context (Pro)
-  ix-intercept/              — before_tool_call(Grep|Glob): front-run with ix text + ix locate
-  ix-read/                   — before_tool_call(Read): inject ix overview + inventory
-  ix-bash/                   — before_tool_call(Bash): intercept grep/rg, run ix text instead
-  ix-pre-edit/               — before_tool_call(Edit|Write): run ix impact before edits
-  ix-ingest/                 — tool_result_persist(Write|Edit): async ix map <file>
-  ix-map/                    — agent_end: async ix map to refresh full graph
+plugins/ix-plugin.ts         — entry point: 17 tools + typed hooks (api.on):
+                               before_prompt_build (briefing, Pro),
+                               before_tool_call(edit|write|apply_patch): ix-decide gate,
+                               after_tool_call(edit|write|apply_patch) + session_end: guarded root map
 
 openclaw.plugin.json         — plugin manifest
 ```

@@ -10,10 +10,6 @@ export const description =
 export const parameters = {
   type: "object",
   properties: {
-    path: {
-      type: "string",
-      description: "Optional: restrict smell detection to a directory path prefix",
-    },
     limit: {
       type: "number",
       description: "Max results to return. Default: 50, max: 200",
@@ -24,19 +20,16 @@ export const parameters = {
 } as const;
 
 interface Params {
-  path?: string;
   limit?: number;
 }
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
-  const llmArgs = ["smells"];
-  if (params.path) llmArgs.push("--path", params.path);
-  const fast = await tryLlm(llmArgs, dir);
+  // `ix smells` has no path filter; it always reports on the whole graph.
+  const fast = await tryLlm(["smells"], dir);
   if (fast) return `## ix-smells\n\n${fast}`;
 
   const args = ["smells", "--format", "json"];
-  if (params.path) args.push("--path", params.path);
 
   let raw: any;
   try {
@@ -68,13 +61,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const candidates = allCandidates.slice(0, Math.min(params.limit ?? 50, 200));
 
   if (candidates.length === 0) {
-    return `## ix-smells\n\nNo code smells detected${params.path ? ` in \`${params.path}\`` : ""}. Architecture looks clean.`;
+    return `## ix-smells\n\nNo code smells detected. Architecture looks clean.`;
   }
 
   const lines = [
     "## ix-smells",
     "",
-    `**${total} smell${total === 1 ? "" : "s"} detected${params.path ? ` in \`${params.path}\`` : ""}**${candidates.length < total ? ` (showing ${candidates.length} of ${total})` : ""}`,
+    `**${total} smell${total === 1 ? "" : "s"} detected**${candidates.length < total ? ` (showing ${candidates.length} of ${total})` : ""}`,
     "",
   ];
 
