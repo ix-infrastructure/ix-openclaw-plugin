@@ -97,3 +97,31 @@ test("the strict fake rejects what the real CLI rejects", () => {
     ix.restore();
   }
 });
+
+test("ix-ingest refresh maps the git root, not the subdirectory it was called from", async () => {
+  const { mkdtempSync, mkdirSync, realpathSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const ixIngest = await import("../dist/tools/ix-ingest.js");
+
+  const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "ix-ingest-")));
+  const repo = path.join(sandbox, "repo");
+  const sub = path.join(repo, "packages", "core");
+  mkdirSync(sub, { recursive: true });
+  execFileSync("git", ["init", "-q", repo]);
+  const ix = installFakeIx();
+  globalThis.fetch = async () => {
+    throw new Error("offline");
+  };
+  try {
+    const output = await ixIngest.execute({ refresh: true }, { directory: sub });
+    assert.match(output, /Graph refresh complete/, output);
+    const maps = ix.mapCalls();
+    assert.equal(maps.length, 1);
+    assert.deepEqual(maps[0].argv, ["map", repo, "--silent"]);
+    assert.equal(realpathSync(maps[0].cwd), repo);
+  } finally {
+    globalThis.fetch = originalFetch;
+    ix.restore();
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
