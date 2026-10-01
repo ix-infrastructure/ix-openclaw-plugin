@@ -78,10 +78,6 @@ export function parseIxJson<T>(raw: string): T {
   throw new Error("Failed to parse ix JSON output");
 }
 
-export function previewMarkdown(result: Record<string, unknown> | null): string | null {
-  return typeof result?.preview_markdown === "string" ? result.preview_markdown : null;
-}
-
 export function ixUnavailableMessage(title: string, body?: string, error?: string): string {
   const lines = [`## ${title}`, ""];
 

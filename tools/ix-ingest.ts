@@ -1,6 +1,5 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
 import {
   ixHttpGet,
   ixUnavailableMessage,
@@ -67,21 +66,6 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   if (params.refresh) {
-    const runtimeResult = await callRuntime(
-      "/v2/ingest/map",
-      { trigger: "manual", priority: "normal" },
-      { dir }
-    );
-
-    if (runtimeResult) {
-      return [
-        "## ix-ingest: graph refresh",
-        "",
-        "**Status:** Graph update queued (runtime).",
-        `**Job:** ${typeof runtimeResult.job_id === "string" ? runtimeResult.job_id : "accepted"}`,
-      ].join("\n");
-    }
-
     try {
       const args = params.silent === false ? ["map"] : ["map", "--silent"];
       await runIx(args, { cwd: dir });
@@ -155,7 +139,7 @@ async function probeStatus(dir: string): Promise<string> {
       "",
       `**Status:** Could not determine graph state — ${getErrorMessage(error)}`,
       "",
-      "Ensure ix is connected: `ix connect`",
+      "Check the backend with `ix status`; start it with `ix docker start`.",
     ].join("\n");
   }
 }

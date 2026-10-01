@@ -1,7 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
-import { previewMarkdown, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-neighbors";
 export const description =
@@ -46,30 +45,6 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const direction = params.direction ?? "all";
   const limit = Math.min(params.limit ?? 15, 30);
   const depth = Math.min(params.depth ?? 2, 3);
-
-  const edgeTypes =
-    direction === "all"
-      ? ["calls", "imports", "depends_on"]
-      : direction === "callers"
-        ? ["calls"]
-        : direction === "callees"
-          ? ["calls"]
-          : direction === "depends"
-            ? ["depends_on"]
-            : ["imports"];
-
-  const runtimeResult = await callRuntime(
-    "/v2/graph/query",
-    {
-      operation: "neighbors",
-      selectors: [{ kind: "symbol", value: params.symbol }],
-      edge_types: edgeTypes,
-      depth,
-    },
-    { dir }
-  );
-  const runtimeMarkdown = previewMarkdown(runtimeResult);
-  if (runtimeMarkdown) return runtimeMarkdown;
 
   const sections = [`## ix-neighbors: ${params.symbol}`, ""];
   if (direction === "callers" || direction === "all") {
