@@ -55,8 +55,10 @@ Correlate: components that are both **highly central** and in **poorly-bounded s
 If Step 1–3 identify one region as clearly the worst:
 ```bash
 ix subsystems <region> --explain
-ix smells --path <region-path> --format llm
 ```
+
+Reuse the Step 2 `ix smells` output for this region — keep the findings whose file
+falls under the region's path (`ix smells` has no path filter).
 
 **Hard limit:** One region. Do not audit every subsystem — identify the worst and analyze that.
 

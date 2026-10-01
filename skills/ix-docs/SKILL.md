@@ -165,7 +165,7 @@ timeout 60s ix subsystems --list --format llm
 
 If `TARGET` is not obviously the whole repo:
 ```bash
-timeout 60s ix locate "$TARGET" --limit 5 --format llm
+timeout 60s ix locate "$TARGET" --format llm
 ```
 
 Resolve whether the target is:
@@ -282,10 +282,8 @@ Use:
 timeout 60s ix smells --format llm
 ```
 
-If the target is smaller than a full repo, scope it when supported:
-```bash
-timeout 60s ix smells --path "$TARGET" --format llm
-```
+`ix smells` always covers the whole graph (it has no path filter). If the target is
+smaller than a full repo, keep only the findings whose file falls under it.
 
 Prioritize:
 - god modules

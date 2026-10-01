@@ -17,7 +17,7 @@ If `$ARGUMENTS` contains symbol names, proceed.
 If `$ARGUMENTS` is a description (no identifiable symbols), first run:
 ```bash
 timeout 60s ix text "$ARGUMENTS" --limit 10 --format llm
-timeout 60s ix locate "$ARGUMENTS" --limit 5 --format llm
+timeout 60s ix locate "$ARGUMENTS" --format llm
 ```
 Identify the 1–4 most relevant symbols and treat those as targets.
 

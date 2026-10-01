@@ -38,10 +38,8 @@ Extract:
 timeout 60s ix smells --format llm
 ```
 
-If `$ARGUMENTS` scopes to a path:
-```bash
-timeout 60s ix smells --path $ARGUMENTS --format llm
-```
+`ix smells` always covers the whole graph (it has no path filter). If `$ARGUMENTS`
+scopes to a path, keep only the findings whose file falls under it.
 
 Classify each finding: `orphan` / `god-module` / `weak-component`.
 
