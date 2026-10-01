@@ -123,10 +123,17 @@ Autonomous multi-step agents for complex tasks:
 | `before_tool_call` (Read) | `ix-read` | Front-runs with `ix inventory` + `ix overview` for the file |
 | `before_tool_call` (Bash grep/rg) | `ix-bash` | Extracts pattern, front-runs with `ix text` + `ix locate` |
 | `before_tool_call` (Edit/Write) | `ix-pre-edit` | Runs `ix impact` before the edit |
-| `tool_result_persist` (Edit/Write) | `ix-ingest` | Runs `ix map <file>` to update the graph (async) |
-| `agent_end` | `ix-map` | Runs `ix map` to refresh the full graph (async) |
+| `after_tool_call` (Edit/Write) | plugin | Requests the guarded root map (below) |
+| `session_end` | plugin | Requests the guarded root map for the agent workspace |
 
 All hooks bail silently if `ix` is not in PATH or the backend is unreachable.
+
+**Guarded root map.** Automatic refresh runs `ix map <git root> --silent` in the
+background (with `IX_AUTO_MAP=1`) only when the project is a git repo whose root
+is not `$HOME`, `ix status` reports the project is already mapped, and no
+automatic map started for that root in the last 5 minutes
+(`IX_MAP_DEBOUNCE_SECONDS`). It never creates a workspace — run `ix map` yourself
+once per project. Debounce stamps live in `${XDG_STATE_HOME:-~/.local/state}/ix-openclaw-plugin/`.
 
 ## Configuration
 

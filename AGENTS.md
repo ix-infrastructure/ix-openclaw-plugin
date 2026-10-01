@@ -94,8 +94,8 @@ hooks/
   ix-read/                   — before_tool_call(Read): inject ix overview + inventory
   ix-bash/                   — before_tool_call(Bash): intercept grep/rg, run ix text instead
   ix-pre-edit/               — before_tool_call(Edit|Write): run ix impact before edits
-  ix-ingest/                 — tool_result_persist(Write|Edit): async ix map <file>
-  ix-map/                    — agent_end: async ix map to refresh full graph
+  ix-ingest/                 — no-op (post-edit refresh is the plugin's guarded root map)
+  ix-map/                    — no-op (automatic refresh is the plugin's guarded root map)
 
 openclaw.plugin.json         — plugin manifest
 ```

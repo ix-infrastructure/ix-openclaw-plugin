@@ -1,11 +1,10 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { getRuntime } from "../runtime/client.ts";
 import { ixHttpGet, runIx, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-health";
 export const description =
-  "Check whether the ix CLI is installed, the graph is indexed, and the Ix Core Runtime is reachable. Returns a one-line status summary and any issues found.";
+  "Check whether the ix CLI is installed, and the graph is indexed. Returns a one-line status summary and any issues found.";
 
 export const parameters = {
   type: "object",
@@ -47,10 +46,11 @@ export async function execute(
         "",
         "**Status: UNAVAILABLE**",
         "",
-        "ix backend unreachable and CLI not found. Ensure Ix is installed:",
+        "ix backend unreachable and CLI not found. Ensure Ix is installed and its backend is running:",
         "```",
         "command -v ix",
-        "ix connect",
+        "ix status",
+        "ix docker start",
         "ix map",
         "```",
       ].join("\n");
@@ -75,7 +75,6 @@ export async function execute(
     }
   }
 
-  const runtimeReachable = (await getRuntime("/v2/status", { timeoutMs: 2_000 })) !== null;
   const lines = ["## ix-health", ""];
 
   lines.push(`**Status:** ${graphPresent ? "OK" : "DEGRADED"}`);
@@ -84,7 +83,6 @@ export async function execute(
     `**Graph:** ${graphPresent ? `indexed${typeof fileCount === "number" ? ` (${fileCount} files)` : ""}` : "not indexed — run `ix map`"}`
   );
   if (staleness) lines.push(`**Freshness:** ${staleness}`);
-  lines.push(`**Runtime (v2):** ${runtimeReachable ? "reachable" : "not available"}`);
 
   if (!graphPresent) {
     lines.push("", "**Action needed:** Run `ix map` to build the initial graph before using other tools.");

@@ -19,7 +19,7 @@ Each iteration: gather evidence → form hypothesis → decide if you need more 
 Before tracing, build a lightweight `ix-docs`-style context:
 ```bash
 ix subsystems --format llm
-ix locate "$SYMPTOM" --limit 5 --format llm
+ix locate "$SYMPTOM" --format llm
 ```
 
 If the likely subsystem or boundary component is still unclear, add:
@@ -35,7 +35,7 @@ Use this only to answer:
 ### Step 1 — Locate the entry point
 
 ```bash
-ix locate "$SYMPTOM" --limit 5 --format llm
+ix locate "$SYMPTOM" --format llm
 ix text   "$SYMPTOM" --limit 10 --format llm
 ```
 
@@ -88,10 +88,10 @@ Look for: missing null checks, wrong assumptions about input format, incorrect s
 
 **Hard limit:** 2 `ix read` calls. If the bug is still unclear, report the candidates and uncertainty — do not keep reading.
 
-### Step 6 — Check for related issues (if ix pro available)
+### Step 6 — Check for related issues (Ix Pro only)
 
 ```bash
-ix bugs --status open --format llm
+ix bug list --format text
 ```
 
 Are there existing bug reports related to this component?

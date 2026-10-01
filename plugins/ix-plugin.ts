@@ -20,7 +20,8 @@ import * as ixSmells from "../tools/ix-smells.ts";
 import * as ixStats from "../tools/ix-stats.ts";
 import * as ixSubsystems from "../tools/ix-subsystems.ts";
 import * as ixTrace from "../tools/ix-trace.ts";
-import { runIx, runIxDetached, type ToolContext } from "../tools/base.ts";
+import { runIx, type ToolContext } from "../tools/base.ts";
+import { requestGuardedMap } from "../runtime/auto-map.ts";
 
 type ToolModule = {
   name: string;
@@ -50,10 +51,12 @@ const IX_TOOLS: ToolModule[] = [
 ];
 
 const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
-const SEARCH_TOOLS = new Set(["Grep", "Glob", "Read", "Bash"]);
 const SKIP_EXT = /\.(md|txt|lock|png|jpg|jpeg|gif|ico|pdf|bin)$/i;
 const SKIP_COMPILED = /(__pycache__|\.pyc|\.class|\.o)$/;
 const BRIEFING_TTL_MS = 10 * 60 * 1000;
+// Safety cap: an entry is removed by after_tool_call, but a call that never
+// completes (denied approval, host crash) would otherwise stay forever.
+const PENDING_WRITE_PATHS_MAX = 256;
 
 const pendingWritePaths = new Map<string, string>();
 let briefingCache:
@@ -80,8 +83,16 @@ const ixMemoryPlugin: ReturnType<typeof definePluginEntry> = definePluginEntry({
 
     api.on("before_prompt_build", handleBeforePromptBuild, { priority: 50 });
     api.on("before_tool_call", handleBeforeToolCall, { priority: 50 });
-    api.on("after_tool_call", handleAfterToolCall, { priority: 50 });
-    api.on("session_end", handleSessionEnd, { priority: 50 });
+    api.on(
+      "after_tool_call",
+      (event: any, ctx: any) => handleAfterToolCall(event, resolveAgentWorkspaceDir(api, ctx?.agentId)),
+      { priority: 50 }
+    );
+    api.on(
+      "session_end",
+      (_event: any, ctx: any) => handleSessionEnd(resolveAgentWorkspaceDir(api, ctx?.agentId)),
+      { priority: 50 }
+    );
   },
 });
 
@@ -152,18 +163,9 @@ async function handleBeforeToolCall(event: any) {
   const toolName = event?.toolName;
   if (typeof toolName !== "string") return;
 
+  if (!WRITE_TOOLS.has(toolName)) return;
+
   const targetPath = extractTargetPath(event);
-  if (targetPath && event?.toolCallId) {
-    pendingWritePaths.set(String(event.toolCallId), targetPath);
-  }
-
-  if (!WRITE_TOOLS.has(toolName)) {
-    if (SEARCH_TOOLS.has(toolName) && targetPath && event?.toolCallId) {
-      pendingWritePaths.set(String(event.toolCallId), targetPath);
-    }
-    return;
-  }
-
   if (!targetPath || shouldSkipPath(targetPath)) return;
 
   const directory = directoryForTargetPath(targetPath);
@@ -183,6 +185,8 @@ async function handleBeforeToolCall(event: any) {
     };
   }
 
+  rememberWritePath(event?.toolCallId, targetPath);
+
   if (decision === "REVIEW") {
     return {
       requireApproval: {
@@ -197,21 +201,78 @@ async function handleBeforeToolCall(event: any) {
   }
 }
 
-function handleAfterToolCall(event: any) {
-  const toolName = event?.toolName;
-  if (!WRITE_TOOLS.has(toolName)) return;
-  if (event?.error) return;
-
-  const targetPath = extractTargetPath(event) ?? pendingWritePaths.get(String(event?.toolCallId ?? ""));
-  if (!targetPath || shouldSkipPath(targetPath)) return;
-
-  runIxDetached(["map", targetPath], directoryForTargetPath(targetPath));
+function rememberWritePath(toolCallId: unknown, targetPath: string): void {
+  if (toolCallId === undefined || toolCallId === null || toolCallId === "") return;
+  pendingWritePaths.set(String(toolCallId), targetPath);
+  while (pendingWritePaths.size > PENDING_WRITE_PATHS_MAX) {
+    const oldest = pendingWritePaths.keys().next().value;
+    if (oldest === undefined) break;
+    pendingWritePaths.delete(oldest);
+  }
 }
 
-function handleSessionEnd(event: any) {
-  const sessionFile = typeof event?.sessionFile === "string" ? event.sessionFile : undefined;
-  if (!sessionFile) return;
-  runIxDetached(["map"], dirname(sessionFile));
+function takeWritePath(toolCallId: unknown): string | undefined {
+  if (toolCallId === undefined || toolCallId === null || toolCallId === "") return undefined;
+  const key = String(toolCallId);
+  const value = pendingWritePaths.get(key);
+  pendingWritePaths.delete(key);
+  return value;
+}
+
+/**
+ * After a successful write, ask for the guarded root map — never `ix map
+ * <file>`, which Ix rejects ("Map path is not a directory"). The project dir is
+ * the edited file's directory (a relative path is resolved against the agent
+ * workspace); requestGuardedMap turns it into the git root and applies every
+ * other guard. Fire-and-forget: nothing here may hold up the tool result.
+ */
+function handleAfterToolCall(event: any, workspaceDir?: string) {
+  const toolName = event?.toolName;
+  if (!WRITE_TOOLS.has(toolName)) return;
+  const remembered = takeWritePath(event?.toolCallId);
+  if (event?.error) return;
+
+  const targetPath = extractTargetPath(event) ?? remembered;
+  if (!targetPath || shouldSkipPath(targetPath)) return;
+
+  const projectDir = projectDirForTargetPath(targetPath, workspaceDir);
+  if (!projectDir) return;
+  void requestGuardedMap(projectDir);
+}
+
+/**
+ * At session end, request the guarded map for the agent's workspace. The event
+ * only carries the transcript path (`<state>/agents/<id>/sessions/...`), which
+ * is OpenClaw state, not the project, so it is deliberately not used.
+ */
+function handleSessionEnd(workspaceDir?: string) {
+  if (!workspaceDir) return;
+  void requestGuardedMap(workspaceDir);
+}
+
+/**
+ * The agent's workspace directory, via the SDK's
+ * `runtime.agent.resolveAgentWorkspaceDir(config, agentId)`. Undefined when the
+ * host does not expose it or no agent id is known.
+ */
+function resolveAgentWorkspaceDir(api: any, agentId: unknown): string | undefined {
+  if (typeof agentId !== "string" || !agentId.trim()) return undefined;
+  try {
+    const resolve = api?.runtime?.agent?.resolveAgentWorkspaceDir;
+    if (typeof resolve !== "function") return undefined;
+    const config = api?.runtime?.config?.current?.() ?? api?.config;
+    if (!config) return undefined;
+    const dir = resolve(config, agentId);
+    return typeof dir === "string" && dir.trim() ? dir : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function projectDirForTargetPath(targetPath: string, workspaceDir?: string): string | undefined {
+  if (isAbsolute(targetPath)) return dirname(targetPath);
+  if (!workspaceDir) return undefined;
+  return dirname(resolvePath(workspaceDir, targetPath));
 }
 
 async function getBriefing(workspaceDir: string): Promise<string | null> {

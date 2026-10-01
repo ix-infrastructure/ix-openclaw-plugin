@@ -14,7 +14,7 @@ Answer: *what is this, how does it connect, and what's the execution path?* Stop
 ## Phase 1 — Locate (always)
 
 ```bash
-timeout 60s ix locate $ARGUMENTS --limit 5 --format llm
+timeout 60s ix locate $ARGUMENTS --format llm
 ```
 
 If multiple matches: use `--kind`, `--path`, or `--pick N` to resolve. Do not proceed until the entity is unambiguous.

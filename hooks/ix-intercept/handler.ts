@@ -50,7 +50,7 @@ async function handleGrep(event: any, input: any) {
 
   if (isPlain) {
     promises.push(
-      runIx(["locate", pattern, "--limit", "5", "--format", "json"]).catch((e) => {
+      runIx(["locate", pattern, "--format", "json"]).catch((e) => {
         captureErrorAsync("ix", "ix-locate", "locate failed", 1, `ix locate '${pattern}'`, e.message);
         return "";
       }),

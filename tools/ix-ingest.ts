@@ -1,6 +1,9 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { callRuntime } from "../runtime/client.ts";
+import { realpathSync } from "node:fs";
+import { homedir } from "node:os";
+
+import { resolveProjectRoot } from "../runtime/auto-map.ts";
 import {
   ixHttpGet,
   ixUnavailableMessage,
@@ -9,6 +12,10 @@ import {
   ToolContext,
   toolDirectory,
 } from "./base.ts";
+
+// An explicit, agent-requested map of a whole project routinely runs for
+// minutes; the 60 s default killed it part-way.
+const MAP_TIMEOUT_MS = 10 * 60_000;
 
 export const name = "ix-ingest";
 export const description =
@@ -67,24 +74,21 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   if (params.refresh) {
-    const runtimeResult = await callRuntime(
-      "/v2/ingest/map",
-      { trigger: "manual", priority: "normal" },
-      { dir }
-    );
-
-    if (runtimeResult) {
+    // Map the project root (git top level), not whatever subdirectory the tool
+    // context happens to point at. Outside git, the directory itself.
+    const resolved = await resolveProjectRoot(dir);
+    const root = "root" in resolved ? resolved.root : dir;
+    if (sameDir(root, homedir())) {
       return [
         "## ix-ingest: graph refresh",
         "",
-        "**Status:** Graph update queued (runtime).",
-        `**Job:** ${typeof runtimeResult.job_id === "string" ? runtimeResult.job_id : "accepted"}`,
+        "**Status:** Refused — the project root is your home directory.",
+        "Run `ix map <project dir>` for the project you mean.",
       ].join("\n");
     }
-
     try {
-      const args = params.silent === false ? ["map"] : ["map", "--silent"];
-      await runIx(args, { cwd: dir });
+      const args = params.silent === false ? ["map", root] : ["map", root, "--silent"];
+      await runIx(args, { cwd: root, timeoutMs: MAP_TIMEOUT_MS });
       return [
         "## ix-ingest: graph refresh",
         "",
@@ -155,7 +159,7 @@ async function probeStatus(dir: string): Promise<string> {
       "",
       `**Status:** Could not determine graph state — ${getErrorMessage(error)}`,
       "",
-      "Ensure ix is connected: `ix connect`",
+      "Check the backend with `ix status`; start it with `ix docker start`.",
     ].join("\n");
   }
 }
@@ -183,6 +187,14 @@ function formatStatus(status: StatusResult): string {
   }
 
   return lines.join("\n");
+}
+
+function sameDir(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return a === b;
+  }
 }
 
 function getErrorMessage(error: unknown): string {

@@ -9,7 +9,7 @@
 
 import { execFile } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 
@@ -21,7 +21,6 @@ const PRO_TTL = 3_600_000; // 1 hour
 const READ_CACHE_TTL = 300_000; // 5 minutes
 const ERROR_STORE = join(homedir(), ".local", "share", "ix", "plugin", "errors");
 const RATE_FILE = join(ERROR_STORE, "rate-limit.json");
-const SESSION_FILE = join(tmpdir(), "ix-error-session-count");
 
 let healthCacheTime = 0;
 let healthCacheOk = false;
@@ -66,16 +65,6 @@ export function runIx(args: string[]): Promise<string> {
   });
 }
 
-/** Run an ix command, fire-and-forget (no await needed). */
-export function runIxDetached(args: string[]): void {
-  const { spawn } = require("node:child_process");
-  const child = spawn("ix", args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-}
-
 /** Parse JSON from ix output, stripping any header noise. */
 export function parseIxJson(raw: string): unknown | null {
   const match = raw.match(/[\[{][\s\S]*/);
@@ -87,10 +76,20 @@ export function parseIxJson(raw: string): unknown | null {
   }
 }
 
+/**
+ * Per-user cache directory. This used to be a fixed `$TMPDIR/ix-openclaw-cache`
+ * shared by every user on the machine, so one user could pre-seed or read
+ * another's cache. Now `${XDG_STATE_HOME:-~/.local/state}/ix-openclaw-plugin/cache`,
+ * created 0700.
+ */
+export function cacheDir(): string {
+  const base = process.env.XDG_STATE_HOME?.trim() || join(homedir(), ".local", "state");
+  return join(base, "ix-openclaw-plugin", "cache");
+}
+
 /** Simple file-based TTL cache. Returns null if cache is stale or missing. */
 export function readCache(key: string, ttl: number): string | null {
-  const cacheDir = join(tmpdir(), "ix-openclaw-cache");
-  const file = join(cacheDir, key);
+  const file = join(cacheDir(), key);
   try {
     const stat = statSync(file);
     if (Date.now() - stat.mtimeMs < ttl) {
@@ -104,10 +103,10 @@ export function readCache(key: string, ttl: number): string | null {
 
 /** Write to the file-based TTL cache. */
 export function writeCache(key: string, value: string): void {
-  const cacheDir = join(tmpdir(), "ix-openclaw-cache");
+  const dir = cacheDir();
   try {
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(join(cacheDir, key), value);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, key), value, { mode: 0o600 });
   } catch {
     // non-critical
   }

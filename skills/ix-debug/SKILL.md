@@ -14,7 +14,7 @@ Answer: *where in the execution path is this likely failing, and why?* Stop once
 ## Phase 1 — Locate the entry point (always)
 
 ```bash
-timeout 60s ix locate $ARGUMENTS --limit 5 --format llm
+timeout 60s ix locate $ARGUMENTS --format llm
 ```
 
 If `$ARGUMENTS` is a symptom description rather than a symbol name, also run:

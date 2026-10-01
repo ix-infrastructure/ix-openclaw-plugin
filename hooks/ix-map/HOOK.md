@@ -1,12 +1,14 @@
 ---
 name: ix-map
-description: "Refreshes the full ix graph after the agent finishes a response."
+description: "No-op. Automatic graph refresh is handled by the plugin's guarded root map."
 metadata:
   { "openclaw": { "emoji": "🗺️", "events": ["agent_end"], "requires": { "bins": ["ix"] } } }
 ---
 
 # ix-map
 
-Fires after the agent finishes each response. Runs `ix map` asynchronously to
-keep the architectural graph current so the next session starts fresh.
-Does not block the agent response or session end.
+Fires after the agent finishes each response and does nothing. It used to run a
+bare `ix map` in whatever directory the host process was in. Automatic refresh
+now happens only through the plugin's guarded root map (after edits and at
+session end): `ix map <git root> --silent`, only for projects that are already
+mapped, debounced per root, in the background.
