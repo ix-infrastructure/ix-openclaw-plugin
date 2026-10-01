@@ -66,16 +66,6 @@ export function runIx(args: string[]): Promise<string> {
   });
 }
 
-/** Run an ix command, fire-and-forget (no await needed). */
-export function runIxDetached(args: string[]): void {
-  const { spawn } = require("node:child_process");
-  const child = spawn("ix", args, {
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
-}
-
 /** Parse JSON from ix output, stripping any header noise. */
 export function parseIxJson(raw: string): unknown | null {
   const match = raw.match(/[\[{][\s\S]*/);

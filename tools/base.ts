@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -54,15 +54,6 @@ export function runIx(args: string[], options: RunIxOptions): Promise<string> {
       resolve(stdout);
     });
   });
-}
-
-export function runIxDetached(args: string[], cwd?: string): void {
-  const child = spawn("ix", args, {
-    cwd,
-    detached: true,
-    stdio: "ignore",
-  });
-  child.unref();
 }
 
 export async function runIxJson<T>(

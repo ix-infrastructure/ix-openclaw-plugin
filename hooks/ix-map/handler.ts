@@ -3,22 +3,15 @@
 /**
  * ix-map — agent_end hook
  *
- * Fires after the agent finishes a response. Runs ix map asynchronously
- * to refresh the full graph for the next session.
+ * This used to run a bare `ix map` in the host process's cwd after every agent
+ * response — whatever directory that happened to be, mapped or not. Automatic
+ * maps now go only through the plugin's guarded root map
+ * (runtime/auto-map.ts, requested after edits and at session end), so this
+ * hook deliberately does nothing.
  */
 
-import { ixAvailable, runIxDetached } from "../ix-utils.js";
-
-const handler = (event: any) => {
-  if (event.type !== "agent" && event.action !== "end") {
-    // Also accept the combined event type
-    if (event.type !== "lifecycle" || event.action !== "agent_end") return;
-  }
-
-  if (!ixAvailable()) return;
-
-  // Fire-and-forget
-  runIxDetached(["map"]);
+const handler = (_event: any) => {
+  return;
 };
 
 export default handler;
