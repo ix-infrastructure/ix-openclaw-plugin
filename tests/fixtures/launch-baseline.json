@@ -14,7 +14,7 @@
       "status": "implemented",
       "event": "before_prompt_build",
       "trigger": "Prompt build with a non-empty workspaceDir",
-      "launch_behavior": "Calls `ix briefing --format json`, caches the result for 10 minutes per workspace, and prepends `[ix] Session briefing:` plus the JSON payload when briefing data is available.",
+      "launch_behavior": "Calls `ix briefing --format text`, caches the result for 10 minutes per workspace, and prepends `[ix] Session briefing:` plus the text, capped at 2,000 characters, on the first prompt build per workspace in each 10-minute window when briefing data is available.",
       "failure_mode": "Returns no injection when workspaceDir is absent, Ix Pro is unavailable, or the briefing call fails.",
       "claude_delta": "Claude triggers briefing on `UserPromptSubmit` and also instructs Claude to append a final Ix summary when hooks helped. OpenClaw launch baseline only prepends context."
     },

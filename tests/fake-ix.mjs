@@ -16,6 +16,8 @@
  * ({argv, cwd, autoMap}). `ix status --format json --root <r>` reports
  * graphCompleted=true only for roots listed in `mapped-roots` (one per line).
  * `ix impact <target>` answers from `impact.json` when a test set one.
+ * `ix briefing` answers from `briefing.txt` (text|json only, like @ix/pro) and
+ * fails as if Ix Pro were absent when no test set one.
  *
  * Nothing here talks to a backend: the fake never maps anything.
  */
@@ -89,6 +91,18 @@ switch (command) {
     process.stdout.write(JSON.stringify(canned[target] ?? {}) + "\\n");
     break;
   }
+  case "briefing": {
+    // @ix/pro declares text|json only. No briefing.txt means Pro is absent.
+    const formatIndex = rest.indexOf("--format");
+    const format = formatIndex >= 0 ? rest[formatIndex + 1] : "text";
+    if (format !== "text" && format !== "json") fail("error: invalid format '" + format + "'");
+    let briefing;
+    try { briefing = readFileSync(path.join(dir, "briefing.txt"), "utf8"); } catch {
+      fail("ix briefing requires Ix Pro");
+    }
+    process.stdout.write(format === "json" ? JSON.stringify({ briefing }) + "\\n" : briefing);
+    break;
+  }
   case "--version":
     process.stdout.write("0.11.1\\n");
     break;
@@ -128,6 +142,10 @@ export function installFakeIx() {
     /** Answer `ix impact <target>` with `responses[target]` (ix-decide reads it). */
     setImpact(responses) {
       writeFileSync(path.join(dir, "impact.json"), JSON.stringify(responses));
+    },
+    /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
+    setBriefing(text) {
+      writeFileSync(path.join(dir, "briefing.txt"), text);
     },
     setMapped(roots) {
       writeFileSync(path.join(dir, "mapped-roots"), roots.join("\n") + "\n");

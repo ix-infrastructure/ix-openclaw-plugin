@@ -1,6 +1,6 @@
 {
   "name": "ix-openclaw-plugin",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "Ix Memory plugin for OpenClaw — graph-first reasoning layer",
   "type": "module",
   "private": true,

@@ -27,6 +27,12 @@ import * as ixSubsystems from "../tools/ix-subsystems.ts";
 import * as ixTrace from "../tools/ix-trace.ts";
 import { runIx, type ToolContext } from "../tools/base.ts";
 import { requestGuardedMap } from "../runtime/auto-map.ts";
+import {
+  BRIEFING_TTL_MS,
+  capBriefing,
+  claimBriefing,
+  releaseBriefingClaim,
+} from "../runtime/briefing.ts";
 import { isWriteTool, WRITE_TOOL_NAMES, writeToolPaths } from "../runtime/host-tools.ts";
 
 type ToolModule = {
@@ -58,7 +64,6 @@ const IX_TOOLS: ToolModule[] = [
 
 const SKIP_EXT = /\.(md|txt|lock|png|jpg|jpeg|gif|ico|pdf|bin)$/i;
 const SKIP_COMPILED = /(__pycache__|\.pyc|\.class|\.o)$/;
-const BRIEFING_TTL_MS = 10 * 60 * 1000;
 // Safety cap: an entry is removed by after_tool_call, but a call that never
 // completes (denied approval, host crash) would otherwise stay forever.
 const PENDING_WRITE_PATHS_MAX = 256;
@@ -148,8 +153,18 @@ async function handleBeforePromptBuild(_event: any, ctx: any) {
   const workspaceDir = normalizeWorkspaceDir(ctx?.workspaceDir);
   if (!workspaceDir) return;
 
+  // Once per window per workspace. This ran on EVERY prompt build: getBriefing's
+  // cache stopped it re-running `ix briefing`, not re-injecting its ~1.3 KB of
+  // output. Claimed before the await so overlapping builds cannot both inject;
+  // handed back when there is nothing to inject.
+  const claim = claimBriefing(workspaceDir);
+  if (claim === null) return;
+
   const briefing = await getBriefing(workspaceDir);
-  if (!briefing) return;
+  if (!briefing) {
+    releaseBriefingClaim(workspaceDir, claim);
+    return;
+  }
 
   return {
     prependContext: `[ix] Session briefing:\n${briefing}`,
@@ -310,11 +325,16 @@ async function getBriefing(workspaceDir: string): Promise<string | null> {
   }
 
   try {
-    const briefing = await runIx(["briefing", "--format", "json"], {
+    // text, not json: this goes into a prompt for the model to read, not into
+    // a parser. Measured on a real graph, the same briefing is 4,352 bytes as
+    // json and 1,305 as text. Not `llm` — briefing has no record renderer (see
+    // runtime/llm.ts's table) and `llm` routes to this same text. Explicit,
+    // because the CLI's default format is configurable.
+    const briefing = await runIx(["briefing", "--format", "text"], {
       cwd: workspaceDir,
       timeoutMs: 8000,
     });
-    const text = briefing.trim();
+    const text = capBriefing(briefing);
     briefingCache = {
       workspaceDir,
       fetchedAt: now,
