@@ -1,6 +1,6 @@
 {
   "name": "ix-openclaw-plugin",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Ix Memory plugin for OpenClaw — graph-first reasoning layer",
   "type": "module",
   "private": true,
@@ -19,7 +19,6 @@
     "SOUL.md",
     "agents",
     "skills",
-    "hooks",
     "install.sh",
     "install.ps1",
     "test-local.sh"

@@ -28,16 +28,6 @@ const agentNames = [
   "ix-architecture-auditor",
 ];
 
-const hookNames = [
-  "ix-bash",
-  "ix-briefing",
-  "ix-ingest",
-  "ix-intercept",
-  "ix-map",
-  "ix-pre-edit",
-  "ix-read",
-];
-
 test("manifest declares the full plugin surface", () => {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(rootDir, "openclaw.plugin.json"), "utf8")
@@ -46,7 +36,8 @@ test("manifest declares the full plugin surface", () => {
   assert.equal(manifest.id, "ix-memory");
   assert.equal(manifest.activation?.onStartup, true);
   assert.deepEqual(manifest.skills, ["skills"]);
-  assert.deepEqual(manifest.hooks, ["hooks"]);
+  // Behaviour lives on the plugin's typed api.on handlers, not folder hooks.
+  assert.equal(manifest.hooks, undefined);
   assert.equal(manifest.contracts?.tools?.length, 17);
 });
 
@@ -56,12 +47,12 @@ test("package metadata points OpenClaw at the built plugin entry", () => {
   assert.equal(pkg.openclaw?.extensions?.[0], "./dist/plugins/ix-plugin.js");
   assert.equal(pkg.scripts?.test, "npm run build && node --test tests/*.test.mjs");
 
-  for (const entry of ["dist", "agents", "skills", "hooks", "install.sh", "install.ps1"]) {
+  for (const entry of ["dist", "agents", "skills", "install.sh", "install.ps1"]) {
     assert.ok(pkg.files.includes(entry), `${entry} should be published`);
   }
 });
 
-test("skills, agents, hooks, and installers exist", () => {
+test("skills, agents, and installers exist; folder hooks do not", () => {
   for (const skill of skillNames) {
     assert.ok(fs.existsSync(path.join(rootDir, "skills", skill, "SKILL.md")), skill);
   }
@@ -70,13 +61,7 @@ test("skills, agents, hooks, and installers exist", () => {
     assert.ok(fs.existsSync(path.join(rootDir, "agents", `${agent}.md`)), agent);
   }
 
-  for (const hook of hookNames) {
-    assert.ok(fs.existsSync(path.join(rootDir, "hooks", hook, "HOOK.md")), `${hook} HOOK.md`);
-    assert.ok(
-      fs.existsSync(path.join(rootDir, "hooks", hook, "handler.ts")),
-      `${hook} handler.ts`
-    );
-  }
+  assert.equal(fs.existsSync(path.join(rootDir, "hooks")), false);
 
   assert.ok(fs.existsSync(path.join(rootDir, "install.sh")));
   assert.ok(fs.existsSync(path.join(rootDir, "install.ps1")));

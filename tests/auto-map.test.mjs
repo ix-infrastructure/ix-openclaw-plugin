@@ -219,8 +219,8 @@ test("after an edit the plugin maps the git root, never the edited file", async 
 
     const handlers = registerPlugin(repo);
     handlers.get("after_tool_call")(
-      { toolName: "Edit", toolCallId: "e1", params: { file_path: file } },
-      { agentId: "main", toolName: "Edit" }
+      { toolName: "edit", toolCallId: "e1", params: { path: file, edits: [] } },
+      { agentId: "main", toolName: "edit" }
     );
 
     assert.ok(await waitFor(() => env.ix.mapCalls().length > 0), "root map should have started");
@@ -243,8 +243,8 @@ test("a relative edited path is resolved against the agent workspace", async () 
 
     const handlers = registerPlugin(repo);
     handlers.get("after_tool_call")(
-      { toolName: "Write", toolCallId: "w1", params: { file_path: "lib/a.ts" } },
-      { agentId: "main", toolName: "Write" }
+      { toolName: "write", toolCallId: "w1", params: { path: "lib/a.ts", content: "" } },
+      { agentId: "main", toolName: "write" }
     );
 
     assert.ok(await waitFor(() => env.ix.mapCalls().length > 0));
@@ -309,12 +309,12 @@ test("a failed edit and a skipped path request no map", async () => {
     const handlers = registerPlugin(repo);
     const after = handlers.get("after_tool_call");
     after(
-      { toolName: "Edit", toolCallId: "x1", params: { file_path: path.join(repo, "a.ts") }, error: "boom" },
-      { agentId: "main", toolName: "Edit" }
+      { toolName: "edit", toolCallId: "x1", params: { path: path.join(repo, "a.ts"), edits: [] }, error: "boom" },
+      { agentId: "main", toolName: "edit" }
     );
     after(
-      { toolName: "Write", toolCallId: "x2", params: { file_path: path.join(repo, "README.md") } },
-      { agentId: "main", toolName: "Write" }
+      { toolName: "write", toolCallId: "x2", params: { path: path.join(repo, "README.md"), content: "" } },
+      { agentId: "main", toolName: "write" }
     );
     await settle();
     assert.equal(env.ix.calls().length, 0);

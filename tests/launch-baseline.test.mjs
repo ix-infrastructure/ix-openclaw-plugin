@@ -46,12 +46,17 @@ test("launch baseline search interception is currently a no-op", async () => {
   const beforeToolCall = handlers.get("before_tool_call");
   assert.ok(beforeToolCall);
 
-  for (const toolName of ["Grep", "Glob", "Read", "Bash"]) {
-    const result = await beforeToolCall({
-      toolName,
-      toolCallId: toolName + "-1",
-      params: { path: "plugins/ix-plugin.ts" },
-    });
+  // OpenClaw's own read and shell tools, plus the Claude Code names the old
+  // folder hooks matched (OpenClaw has no Grep/Glob/Read/Bash tools).
+  for (const toolName of ["read", "exec", "Grep", "Glob", "Read", "Bash"]) {
+    const result = await beforeToolCall(
+      {
+        toolName,
+        toolCallId: toolName + "-1",
+        params: { path: "plugins/ix-plugin.ts", command: "grep -r foo ." },
+      },
+      { toolName }
+    );
     assert.equal(result, undefined, toolName + " should be a no-op at launch");
   }
 
