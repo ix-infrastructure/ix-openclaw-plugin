@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-smells";
@@ -33,27 +33,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   let raw: any;
   try {
-    const apiRaw = await ixHttpGet<any>("/v1/smells");
-    // Transform API format {smells: [{entity_id, smell, value}]} →
-    // CLI format {candidates: [{smell, file, confidence, signals}], count}
-    const smells: any[] = apiRaw.smells ?? [];
-    const candidates = smells.map((s: any) => ({
-      smell: (s.smell ?? "unknown").replace(/^has_smell\./, ""),
-      file: s.value?.file ?? "",
-      confidence: s.value?.confidence ?? 0,
-      signals: s.value?.signals ?? {},
-    }));
-    raw = { candidates, count: candidates.length };
-  } catch {
-    try {
-      raw = await runIxJson<any>(args, { cwd: dir });
-    } catch (error) {
-      return ixUnavailableMessage(
-        "ix-smells",
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+    raw = await runIxJson<any>(args, { cwd: dir });
+  } catch (error) {
+    return ixUnavailableMessage(
+      "ix-smells",
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   const allCandidates = raw.candidates ?? [];

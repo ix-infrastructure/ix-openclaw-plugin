@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-locate";
@@ -53,28 +53,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   let hits: any[];
   try {
-    const nodes = await ixHttpPost<any[]>("/v1/search", {
-      term: params.pattern,
-      limit,
-      ...(params.language ? { language: params.language } : {}),
-    });
-    // Transform API nodes [{id, kind, name, attrs, provenance}] → hits [{path, line_start, language}]
-    const raw = Array.isArray(nodes) ? nodes : [];
-    hits = raw
-      .filter((n: any) => !params.path || (n.provenance?.sourceUri ?? "").includes(params.path))
-      .map((n: any) => ({
-        path: n.provenance?.sourceUri ?? n.name ?? "",
-        line_start: n.attrs?.line_start ?? null,
-        language: n.attrs?.language ?? null,
-        snippet: null,
-      }));
-  } catch {
-    try {
-      const parsed = await runIxJson<any>(args, { cwd: dir });
-      hits = Array.isArray(parsed) ? parsed : parsed.hits ?? [];
-    } catch (error) {
-      return ixUnavailableMessage(`ix-locate: ${params.pattern}`, "**ix unavailable.** Ensure the ix CLI is installed and the graph is indexed.", getErrorMessage(error));
-    }
+    const parsed = await runIxJson<any>(args, { cwd: dir });
+    hits = Array.isArray(parsed) ? parsed : parsed.hits ?? [];
+  } catch (error) {
+    return ixUnavailableMessage(`ix-locate: ${params.pattern}`, "**ix unavailable.** Ensure the ix CLI is installed and the graph is indexed.", getErrorMessage(error));
   }
 
   if (hits.length === 0) {

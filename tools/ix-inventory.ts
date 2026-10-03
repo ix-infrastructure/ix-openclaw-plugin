@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-inventory";
@@ -38,40 +38,16 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   let raw: any;
   try {
-    const nodes = await ixHttpPost<any[]>("/v1/list", { kind, limit: 5000 });
-    if (!Array.isArray(nodes)) throw new Error("Unexpected list response");
-    const filtered = nodes.filter((n: any) =>
-      (n.provenance?.sourceUri ?? "").includes(params.path)
+    raw = await runIxJson<any>(
+      ["inventory", "--kind", kind, "--path", params.path, "--format", "json"],
+      { cwd: dir }
     );
-    // Build CLI-compatible {byFile, total, scope} format.
-    const byFileMap = new Map<string, string[]>();
-    for (const node of filtered) {
-      const filePath = node.provenance?.sourceUri ?? "";
-      if (kind === "file") {
-        if (!byFileMap.has(filePath)) byFileMap.set(filePath, []);
-      } else {
-        const items = byFileMap.get(filePath) ?? [];
-        items.push(node.name ?? "(unnamed)");
-        byFileMap.set(filePath, items);
-      }
-    }
-    const byFile = kind === "file"
-      ? filtered.map((n: any) => ({ path: n.provenance?.sourceUri ?? n.name }))
-      : Array.from(byFileMap.entries()).map(([path, items]) => ({ path, items }));
-    raw = { byFile, total: kind === "file" ? filtered.length : filtered.length, scope: params.path };
-  } catch {
-    try {
-      raw = await runIxJson<any>(
-        ["inventory", "--kind", kind, "--path", params.path, "--format", "json"],
-        { cwd: dir }
-      );
-    } catch (error) {
-      return ixUnavailableMessage(
-        `ix-inventory: ${params.path}`,
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+  } catch (error) {
+    return ixUnavailableMessage(
+      `ix-inventory: ${params.path}`,
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   const entries = raw.byFile ?? [];

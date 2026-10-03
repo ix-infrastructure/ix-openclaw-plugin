@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpGet, runIx, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { runIx, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-health";
 export const description =
@@ -32,46 +32,40 @@ export async function execute(
   let fileCount: number | undefined;
   let staleness: string | undefined;
 
-  // Try HTTP backend first.
+  // Everything goes through the ix CLI, which knows the endpoint, the
+  // workspace and (once the backend enforces one) the token. Calling the
+  // backend over HTTP from here read every workspace's graph unscoped.
+  if (!cliVersion) {
+    return [
+      "## ix-health",
+      "",
+      "**Status: UNAVAILABLE**",
+      "",
+      "ix CLI not found. Ensure Ix is installed and its backend is running:",
+      "```",
+      "command -v ix",
+      "ix status",
+      "ix docker start",
+      "ix map",
+      "```",
+    ].join("\n");
+  }
   try {
-    const health = await ixHttpGet<any>("/v1/health");
-    graphPresent = health.status === "ok";
-    const stats = await ixHttpGet<any>("/v1/stats");
-    const fileNode = (stats.nodes?.byKind ?? []).find((e: any) => e.kind === "file");
-    fileCount = fileNode?.count;
+    const status = await runIxJson<StatusResult>(["status", "--format", "json"], { cwd: dir });
+    graphPresent = (status.currentRev ?? 0) > 0 || status.graphPresent === true;
+    fileCount = status.fileCount;
+    staleness = typeof status.staleFiles === "number" && status.staleFiles > 0
+      ? `${status.staleFiles} stale files`
+      : status.staleness;
   } catch {
-    if (!cliVersion) {
-      return [
-        "## ix-health",
-        "",
-        "**Status: UNAVAILABLE**",
-        "",
-        "ix backend unreachable and CLI not found. Ensure Ix is installed and its backend is running:",
-        "```",
-        "command -v ix",
-        "ix status",
-        "ix docker start",
-        "ix map",
-        "```",
-      ].join("\n");
-    }
     try {
-      const status = await runIxJson<StatusResult>(["status", "--format", "json"], { cwd: dir });
-      graphPresent = (status.currentRev ?? 0) > 0 || status.graphPresent === true;
-      fileCount = status.fileCount;
-      staleness = typeof status.staleFiles === "number" && status.staleFiles > 0
-        ? `${status.staleFiles} stale files`
-        : status.staleness;
+      const parsed = await runIxJson<{ names?: string[]; list?: string[] }>(
+        ["subsystems", "--list", "--format", "json"],
+        { cwd: dir }
+      );
+      graphPresent = (parsed.names ?? parsed.list ?? []).length > 0;
     } catch {
-      try {
-        const parsed = await runIxJson<{ names?: string[]; list?: string[] }>(
-          ["subsystems", "--list", "--format", "json"],
-          { cwd: dir }
-        );
-        graphPresent = (parsed.names ?? parsed.list ?? []).length > 0;
-      } catch {
-        // Report degraded state below.
-      }
+      // Report degraded state below.
     }
   }
 
