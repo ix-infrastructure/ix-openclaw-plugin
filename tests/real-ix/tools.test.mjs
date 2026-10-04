@@ -269,7 +269,7 @@ test("ix-health reports the released CLI it found and a degraded graph", async (
   resetLlmVersionCache();
   const output = await ixHealth.execute({}, { directory: workspace });
   const version = execFileSync(realIx, ["--version"], { encoding: "utf8" }).trim();
-  assert.match(output, new RegExp(`\\*\\*CLI:\\*\\* ix ${version.replace(/\./g, "\\.")}`), output);
+  assert.ok(output.includes(`**CLI:** ix ${version} `), output);
   assert.match(output, /DEGRADED|UNAVAILABLE/, output);
 });
 
