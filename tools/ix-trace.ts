@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-trace";
@@ -47,17 +47,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   let raw: any;
   try {
-    raw = await traceViaHttp(params.symbol, params.to);
-  } catch {
-    try {
-      raw = await runIxJson<any>(args, { cwd: dir });
-    } catch (error) {
-      return ixUnavailableMessage(
-        `ix-trace: ${params.symbol}`,
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+    raw = await runIxJson<any>(args, { cwd: dir });
+  } catch (error) {
+    return ixUnavailableMessage(
+      `ix-trace: ${params.symbol}`,
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   const upstream = raw.upstream ?? {};
@@ -98,45 +94,6 @@ function renderTree(nodes: TraceNode[], lines: string[], indent: string, depth =
       renderTree(node.children, lines, indent + "  ", depth + 1);
     }
   }
-}
-
-const ALL_PREDICATES = ["CALLS", "IMPORTS", "REFERENCES", "EXTENDS", "IMPLEMENTS", "CONTAINS"];
-
-async function traceViaHttp(symbol: string, to?: string): Promise<any> {
-  const candidates = await ixHttpPost<any[]>("/v1/search", { term: symbol, nameOnly: true, limit: 5 });
-  if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("symbol not found");
-
-  const target = candidates.find((n: any) => n.name === symbol) ?? candidates[0];
-
-  const [upExpand, downExpand] = await Promise.all([
-    ixHttpPost<any>("/v1/expand", { nodeId: target.id, direction: "in",  predicates: ALL_PREDICATES, hops: 3 }),
-    ixHttpPost<any>("/v1/expand", { nodeId: target.id, direction: "out", predicates: ALL_PREDICATES, hops: 3 }),
-  ]);
-
-  const toNode = to
-    ? (await ixHttpPost<any[]>("/v1/search", { term: to, nameOnly: true, limit: 1 }))[0]
-    : null;
-
-  function toTree(nodes: any[]): TraceNode[] {
-    return nodes
-      .filter((n: any) => n.name && n.id !== target.id)
-      .filter((n: any) => !toNode || n.id === toNode.id || n.name === to)
-      .slice(0, 20)
-      .map((n: any) => ({
-        name: n.name ?? "(unnamed)",
-        kind: n.kind,
-        path: n.provenance?.sourceUri,
-      }));
-  }
-
-  const upNodes = upExpand.nodes ?? [];
-  const downNodes = downExpand.nodes ?? [];
-
-  return {
-    target: { kind: target.kind, path: target.provenance?.sourceUri },
-    upstream:   { tree: toTree(upNodes),   summary: { nodes_visited: upNodes.length,   max_depth: 3 } },
-    downstream: { tree: toTree(downNodes), summary: { nodes_visited: downNodes.length, max_depth: 3 } },
-  };
 }
 
 function getErrorMessage(error: unknown): string {

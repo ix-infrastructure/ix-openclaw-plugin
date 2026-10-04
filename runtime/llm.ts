@@ -3,8 +3,8 @@
 /**
  * ix `--format llm` fast-path, gated on the installed CLI's version.
  *
- * Tools here fetch JSON — over HTTP where the backend answers, else via the
- * CLI — parse it, and hand-render markdown. The rendering carries real value: a
+ * Tools here fetch JSON from the CLI (`--format json`), parse it, and
+ * hand-render markdown. The rendering carries real value: a
  * header the model orients on, an empty-graph message, an error envelope. But
  * the *body* is usually a table or list that `--format llm` already emits,
  * 2-4x smaller than the JSON it was rebuilt from.
@@ -13,15 +13,12 @@
  * that gets llm text back emits its own header and then the records verbatim; a
  * tool that gets null runs its existing path untouched.
  *
- * ## This deliberately runs ahead of the HTTP path
+ * ## This runs ahead of the JSON path
  *
- * The tools that use `ixHttpGet`/`ixHttpPost` try the backend first and fall
- * back to the CLI. The fast-path goes in front of both, which is a real
- * reordering and worth stating plainly: a supported CLI means one process spawn
- * instead of one HTTP round trip. That is likely slower per call and much
- * smaller in output, which is the trade this change exists to make. When the
- * CLI is absent or too old the probe fails once per process and every tool
- * reverts to exactly today's HTTP-then-CLI order.
+ * Every tool goes through the ix CLI; none calls the backend over HTTP, which
+ * would bypass the CLI's workspace scoping and its token. The fast-path asks
+ * the same CLI for `--format llm` first. When the CLI is too old for that the
+ * probe fails once per process and every tool uses its JSON path.
  *
  * ## Why the floor is per command
  *
@@ -127,8 +124,8 @@ async function detectVersion(cwd: string): Promise<SemVer | null> {
       try {
         return parseSemver((await runIx(["--version"], { cwd })).trim());
       } catch {
-        // No CLI, or it failed. Fail closed — every tool still has its HTTP and
-        // JSON paths, and this is the one place a wrong answer costs nothing.
+        // No CLI, or it failed. Fail closed — every tool still has its JSON
+        // path, and this is the one place a wrong answer costs nothing.
         return null;
       }
     })();

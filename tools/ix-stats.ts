@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-stats";
@@ -19,7 +19,7 @@ export async function execute(
 ): Promise<string> {
   const dir = toolDirectory(context);
 
-  // Ahead of the HTTP path deliberately — see runtime/llm.ts. Defers when the
+  // Ahead of the JSON path deliberately — see runtime/llm.ts. Defers when the
   // records report an empty graph, so the "run `ix map`" line below survives;
   // a substring check, not a parse.
   const fast = await tryLlm(["stats"], dir);
@@ -27,17 +27,13 @@ export async function execute(
 
   let raw: any;
   try {
-    raw = await ixHttpGet<any>("/v1/stats");
-  } catch {
-    try {
-      raw = await runIxJson<any>(["stats", "--format", "json"], { cwd: dir });
-    } catch (error) {
-      return ixUnavailableMessage(
-        "ix-stats",
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+    raw = await runIxJson<any>(["stats", "--format", "json"], { cwd: dir });
+  } catch (error) {
+    return ixUnavailableMessage(
+      "ix-stats",
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   const totalNodes = raw.nodes?.total ?? 0;

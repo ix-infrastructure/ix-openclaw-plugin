@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-rank";
@@ -58,17 +58,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   let raw: any;
   try {
-    raw = await rankViaHttp(by, kind, top, params.path);
-  } catch {
-    try {
-      raw = await runIxJson<any>(args, { cwd: dir });
-    } catch (error) {
-      return ixUnavailableMessage(
-        `ix-rank: ${by}/${kind}`,
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+    raw = await runIxJson<any>(args, { cwd: dir });
+  } catch (error) {
+    return ixUnavailableMessage(
+      `ix-rank: ${by}/${kind}`,
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   const results = raw.results ?? [];
@@ -92,68 +88,6 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   return lines.join("\n");
-}
-
-const METRIC_CONFIG: Record<string, { direction: "in" | "out"; predicates: string[] }> = {
-  dependents: { direction: "in",  predicates: ["CALLS", "IMPORTS", "REFERENCES"] },
-  callers:    { direction: "in",  predicates: ["CALLS", "REFERENCES"] },
-  importers:  { direction: "in",  predicates: ["IMPORTS"] },
-  members:    { direction: "out", predicates: ["CONTAINS"] },
-};
-
-async function rankViaHttp(
-  by: string,
-  kind: string,
-  top: number,
-  path?: string
-): Promise<any> {
-  const config = METRIC_CONFIG[by];
-  if (!config) throw new Error(`Unknown metric: ${by}`);
-
-  const allNodes = await ixHttpPost<any[]>("/v1/list", { kind, limit: 2000 });
-  if (!Array.isArray(allNodes)) throw new Error("Unexpected list response");
-
-  const candidates = path
-    ? allNodes.filter((n: any) => (n.provenance?.sourceUri ?? "").includes(path))
-    : allNodes;
-
-  if (candidates.length === 0) {
-    return { metric: by, kind, results: [], summary: { evaluated: 0, returned: 0 } };
-  }
-
-  const BATCH = 20;
-  const scored: Array<{ name: string; kind: string; score: number }> = [];
-
-  for (let i = 0; i < candidates.length; i += BATCH) {
-    const batch = candidates.slice(i, i + BATCH);
-    const results = await Promise.all(
-      batch.map(async (node: any) => {
-        try {
-          const expanded = await ixHttpPost<any>("/v1/expand", {
-            nodeId: node.id,
-            direction: config.direction,
-            predicates: config.predicates,
-            hops: 1,
-          });
-          return { name: node.name ?? "(unnamed)", kind: node.kind ?? kind, score: (expanded.nodes ?? []).length };
-        } catch {
-          return { name: node.name ?? "(unnamed)", kind: node.kind ?? kind, score: 0 };
-        }
-      })
-    );
-    scored.push(...results);
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  const results = scored.slice(0, top);
-
-  return {
-    metric: by,
-    kind,
-    scope: path,
-    results: results.map(r => ({ name: r.name, kind: r.kind, score: r.score })),
-    summary: { evaluated: candidates.length, returned: results.length },
-  };
 }
 
 function getErrorMessage(error: unknown): string {

@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpPost, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-explain";
@@ -33,17 +33,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   let raw: any;
   try {
-    raw = await explainViaHttp(params.symbol);
-  } catch {
-    try {
-      raw = await runIxJson<any>(["explain", params.symbol, "--format", "json"], { cwd: dir });
-    } catch (error) {
-      return ixUnavailableMessage(
-        `ix-explain: ${params.symbol}`,
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+    raw = await runIxJson<any>(["explain", params.symbol, "--format", "json"], { cwd: dir });
+  } catch (error) {
+    return ixUnavailableMessage(
+      `ix-explain: ${params.symbol}`,
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   if (!raw.resolvedTarget && !raw.facts) {
@@ -91,50 +87,6 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   return lines.join("\n");
-}
-
-async function explainViaHttp(symbol: string): Promise<any> {
-  // Step 1: find the entity by name.
-  const candidates = await ixHttpPost<any[]>("/v1/search", { term: symbol, nameOnly: true, limit: 5 });
-  if (!Array.isArray(candidates) || candidates.length === 0) throw new Error("not found");
-
-  const target = candidates.find((n: any) => n.name === symbol) ?? candidates[0];
-
-  // Step 2: expand the entity to get its neighborhood.
-  const expanded = await ixHttpPost<any>("/v1/expand", {
-    nodeId: target.id,
-    direction: "both",
-    predicates: ["CALLS", "IMPORTS", "REFERENCES", "CONTAINS"],
-    hops: 1,
-  });
-
-  const edges: any[] = expanded.edges ?? [];
-  const nodes: any[] = expanded.nodes ?? [];
-  const nodeMap = new Map(nodes.map((n: any) => [n.id, n]));
-
-  const callerEdges = edges.filter((e: any) => e.dst === target.id && (e.predicate === "CALLS" || e.predicate === "REFERENCES"));
-  const calleeEdges = edges.filter((e: any) => e.src === target.id && (e.predicate === "CALLS" || e.predicate === "REFERENCES"));
-  const dependentEdges = edges.filter((e: any) => e.dst === target.id);
-  const memberEdges = edges.filter((e: any) => e.src === target.id && e.predicate === "CONTAINS");
-
-  const topCallers = callerEdges.map((e: any) => nodeMap.get(e.src)?.name ?? "").filter(Boolean).slice(0, 5);
-  const topDependents = dependentEdges.map((e: any) => nodeMap.get(e.src)?.name ?? "").filter(Boolean).slice(0, 5);
-
-  return {
-    resolvedTarget: {
-      kind: target.kind,
-      path: target.provenance?.sourceUri ?? "",
-      name: target.name,
-    },
-    facts: {
-      callerCount: callerEdges.length,
-      calleeCount: calleeEdges.length,
-      dependentCount: dependentEdges.length,
-      memberCount: memberEdges.length,
-      topCallers,
-      topDependents,
-    },
-  };
 }
 
 function getErrorMessage(error: unknown): string {

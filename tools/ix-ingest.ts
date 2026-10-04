@@ -5,7 +5,6 @@ import { homedir } from "node:os";
 
 import { resolveProjectRoot } from "../runtime/auto-map.ts";
 import {
-  ixHttpGet,
   ixUnavailableMessage,
   runIx,
   runIxJson,
@@ -55,22 +54,16 @@ interface StatusResult {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
 
-  // Verify the backend is reachable (HTTP first, CLI fallback).
-  let backendReachable = false;
+  // Verify the backend is reachable, through the ix CLI: it knows the
+  // endpoint, the workspace and (once the backend enforces one) the token.
   try {
-    await ixHttpGet("/v1/health", 5_000);
-    backendReachable = true;
-  } catch {
-    try {
-      await runIx(["status"], { cwd: dir, timeoutMs: 5_000 });
-      backendReachable = true;
-    } catch (error) {
-      return ixUnavailableMessage(
-        "ix-ingest: status",
-        "**ix backend unreachable.** Ensure Ix is installed and running.",
-        getErrorMessage(error)
-      );
-    }
+    await runIx(["status"], { cwd: dir, timeoutMs: 5_000 });
+  } catch (error) {
+    return ixUnavailableMessage(
+      "ix-ingest: status",
+      "**ix backend unreachable.** Ensure Ix is installed and running.",
+      getErrorMessage(error)
+    );
   }
 
   if (params.refresh) {
@@ -107,21 +100,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   try {
-    const health = await ixHttpGet<any>("/v1/health");
-    const stats = await ixHttpGet<any>("/v1/stats");
-    const fileNode = (stats.nodes?.byKind ?? []).find((e: any) => e.kind === "file");
-    return formatStatus({
-      connected: health.status === "ok",
-      graphPresent: health.status === "ok",
-      fileCount: fileNode?.count,
-    });
+    const status = await runIxJson<StatusResult>(["status", "--format", "json"], { cwd: dir });
+    return formatStatus(status);
   } catch {
-    try {
-      const status = await runIxJson<StatusResult>(["status", "--format", "json"], { cwd: dir });
-      return formatStatus(status);
-    } catch {
-      return probeStatus(dir);
-    }
+    return probeStatus(dir);
   }
 }
 
