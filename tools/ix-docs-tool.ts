@@ -31,11 +31,28 @@ interface Params {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   const depth = params.depth ?? "standard";
-  const [locateOut, overviewOut, statsOut] = await Promise.all([
+  const [locateRaw, overviewRaw, statsRaw] = await Promise.all([
     safeRun(["locate", params.target, "--format", "json"], dir),
     safeRun(["overview", params.target, "--format", "json"], dir),
     depth !== "brief" ? safeRun(["stats", "--format", "json"], dir) : Promise.resolve(null),
   ]);
+  // A failed call's stdout can be ix's error record ({"error": ...}); that is
+  // a reason, not data, and used to render as an empty context section.
+  const failures = [locateRaw, overviewRaw].map(errorRecord).filter((r): r is IxErrorRecord => r !== null);
+  const locateOut = errorRecord(locateRaw) ? null : locateRaw;
+  const overviewOut = errorRecord(overviewRaw) ? null : overviewRaw;
+  const statsOut = errorRecord(statsRaw) ? null : statsRaw;
+
+  if (!locateOut && !overviewOut && failures.length > 0) {
+    const first = failures[0];
+    return [
+      `## ix-docs-tool: ${params.target}`,
+      "",
+      `**ix could not answer:** \`${first.error}\`${first.message ? ` — ${first.message}` : ""}`,
+      "",
+      "Try: `ix status`, then `ix map` if the project is not indexed.",
+    ].join("\n");
+  }
 
   if (!locateOut && !overviewOut) {
     return [
@@ -148,6 +165,25 @@ function formatOverview(overview: any): string {
  * A failure with no output still maps to null, so the ix-unavailable path is
  * unchanged.
  */
+interface IxErrorRecord {
+  error: string;
+  message?: string;
+}
+
+/** The error record in an ix JSON answer, or null when it is data (or not JSON). */
+function errorRecord(out: string | null): IxErrorRecord | null {
+  if (!out) return null;
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as IxErrorRecord).error === "string") {
+      return parsed as IxErrorRecord;
+    }
+  } catch {
+    // Not JSON: not an error record.
+  }
+  return null;
+}
+
 async function safeRun(args: string[], dir: string): Promise<string | null> {
   try {
     return await runIx(args, { cwd: dir });

@@ -61,11 +61,12 @@ async function formatImpactVerdict(
 
   for (const filePath of paths.slice(0, 5)) {
     try {
-      const result = await runIxJson<ImpactResult>(
+      const result = await runIxJson<ImpactResult & { error?: unknown }>(
         ["impact", filePath, "--format", "json"],
         { cwd: dir }
       );
-      impacts.push({ path: filePath, result });
+      // An ix error record is not an impact: it measured nothing.
+      impacts.push({ path: filePath, result: result && typeof result === "object" && !("error" in result) ? result : null });
     } catch {
       impacts.push({ path: filePath, result: null });
     }
@@ -107,6 +108,17 @@ async function formatImpactVerdict(
     requiredAction = "Safe to proceed. Verify affected callers after the change.";
   }
 
+  // Fail closed. A file whose impact could not be measured (the graph does
+  // not cover it, the backend is down) is not low-risk; it is unknown. ALLOW
+  // used to be built from no data at all when every ix impact call failed.
+  const unmeasured = impacts.filter((impact) => !impact.result).map((impact) => impact.path);
+  if (unmeasured.length > 0 && verdict === "ALLOW") {
+    verdict = "REVIEW";
+    requiredAction =
+      `Ix could not measure the impact of ${unmeasured.length === impacts.length ? "these changes" : `${unmeasured.length} of ${impacts.length} files`}. ` +
+      "Check `ix status` (run `ix map` if the project is not indexed) and review callers manually.";
+  }
+
   const lines = [
     `## ix-decide: ${paths.length === 1 ? paths[0] : `${paths.length} files`}`,
     "",
@@ -117,6 +129,9 @@ async function formatImpactVerdict(
 
   if (subsystems.size > 0) {
     lines.push(`**Subsystems affected:** ${Array.from(subsystems).join(", ")}`);
+  }
+  if (unmeasured.length > 0) {
+    lines.push(`**Not measured:** ${unmeasured.map((p) => `\`${p}\``).join(", ")}`);
   }
   if (intent !== "edit") lines.push(`**Intent:** ${intent}`);
 

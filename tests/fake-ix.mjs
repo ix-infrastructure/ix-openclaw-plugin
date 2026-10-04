@@ -50,6 +50,15 @@ function fail(message) {
 const [command, ...rest] = argv;
 const has = (flag) => rest.includes(flag);
 
+// setUnmapped(): graph reads answer as the real CLI does where no workspace
+// covers the directory -- an error record on stdout, exit 1.
+let unmapped = false;
+try { statSync(path.join(dir, "unmapped")); unmapped = true; } catch {}
+if (unmapped && ["locate", "overview", "stats", "impact", "explain", "inventory"].includes(command)) {
+  process.stdout.write(JSON.stringify({ error: "workspace_not_mapped", message: "No workspace covers this directory. Run ix map." }) + "\\n");
+  process.exit(1);
+}
+
 switch (command) {
   case "map": {
     const positional = rest.filter((arg) => !arg.startsWith("-"));
@@ -88,6 +97,11 @@ switch (command) {
     let canned = {};
     try { canned = JSON.parse(readFileSync(path.join(dir, "impact.json"), "utf8")); } catch {}
     const target = rest.find((arg) => !arg.startsWith("-") && arg !== "json");
+    // "FAIL": answer as the real CLI does for a file it cannot measure.
+    if (canned[target] === "FAIL") {
+      process.stdout.write(JSON.stringify({ error: "workspace_not_mapped", message: "No workspace covers this directory." }) + "\\n");
+      process.exit(1);
+    }
     process.stdout.write(JSON.stringify(canned[target] ?? {}) + "\\n");
     break;
   }
@@ -146,6 +160,10 @@ export function installFakeIx() {
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
       writeFileSync(path.join(dir, "briefing.txt"), text);
+    },
+    /** Make graph reads fail with ix's workspace_not_mapped record. */
+    setUnmapped() {
+      writeFileSync(path.join(dir, "unmapped"), "");
     },
     setMapped(roots) {
       writeFileSync(path.join(dir, "mapped-roots"), roots.join("\n") + "\n");
