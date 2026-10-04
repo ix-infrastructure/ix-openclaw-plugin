@@ -89,6 +89,10 @@ const TOOLS = [
   [ixQuery, { symbol: "runIx" }],
   [ixRank, { top: 3 }],
   [ixTrace, { symbol: "runIx" }],
+  // Optional flags, so the argv check covers them too.
+  [ixTrace, { symbol: "runIx", to: "parseIxJson" }],
+  [ixNeighbors, { symbol: "runIx", direction: "depends", depth: 2 }],
+  [ixLocate, { pattern: "runIx", limit: 5, path: "tools", language: "typescript" }],
 ];
 
 // `ix text` is ripgrep-backed and needs no backend, so ix-locate legitimately
