@@ -38,7 +38,7 @@ const PLUGIN_ID = manifest.id;
 /** Find `function <name>(` exported from a dist chunk whose name starts with `prefix`. */
 async function importHostFunction(prefix, name) {
   for (const file of readdirSync(openclawDist)) {
-    if (!file.startsWith(prefix) || !file.endsWith(".js")) continue;
+    if (!file.startsWith(prefix) || !/\.m?js$/.test(file)) continue;
     const source = readFileSync(path.join(openclawDist, file), "utf8");
     if (!source.includes(`function ${name}(`)) continue;
     const alias = source.match(new RegExp(`export \\{[^}]*\\b${name} as (\\w+)`))?.[1];
