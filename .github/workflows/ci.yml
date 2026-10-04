@@ -73,6 +73,67 @@ jobs:
           printf 'checking: %s\n' "${files[@]}"
           shellcheck --severity=error "${files[@]}"
 
+  # ── Real ix (released CLI) ───────────────────────────────────────────────
+  # Every other test runs against tests/fake-ix.mjs. This job installs a pinned
+  # RELEASED `ix` (checksum-verified) and runs the tool entry points against it
+  # with the backend unreachable (IX_ENDPOINT on port 1, throwaway IX_HOME), so
+  # the tools must parse ix's real output and error records and degrade to a
+  # well-formed "unavailable" message. Any argv the real CLI rejects ("unknown
+  # option") fails it, so a tool flag missing from the pinned release turns this
+  # red. Bump IX_VERSION deliberately, alongside any argv change it needs.
+  real-ix:
+    name: Real ix (released CLI)
+    runs-on: ubuntu-latest
+    env:
+      IX_VERSION: "0.12.0"
+      # sha256 of ix-<IX_VERSION>-linux-amd64.tar.gz, pinned here so a release
+      # asset replaced after the fact (tarball and .sha256 together) fails the
+      # job. Bump it with IX_VERSION.
+      IX_SHA256: "b9606253c5e300dbf4b933c82c6e0dc1d40a028aa344b5dc90dfe6dc34d89817"
+      IX_ENDPOINT: "http://127.0.0.1:1"
+      IX_NO_UPDATE_CHECK: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The ix launcher runs on the same Node; 22.x latest satisfies both it and
+      # the openclaw dev dependency (>=22.22.3).
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install ripgrep (backs `ix text`)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+      - name: Install released ix
+        run: |
+          set -euo pipefail
+          asset="ix-${IX_VERSION}-linux-amd64.tar.gz"
+          base="https://github.com/ix-infrastructure/Ix/releases/download/v${IX_VERSION}"
+          dest="$RUNNER_TEMP/ix-cli"
+          mkdir -p "$dest"
+          cd "$RUNNER_TEMP"
+          curl -fsSL --retry 3 -o "$asset" "$base/$asset"
+          curl -fsSL --retry 3 -o "$asset.sha256" "$base/$asset.sha256"
+          sha256sum -c "$asset.sha256"
+          echo "$IX_SHA256  $asset" | sha256sum -c -
+          tar -xzf "$asset" -C "$dest" --strip-components=1
+          test -x "$dest/ix"
+          echo "$dest" >> "$GITHUB_PATH"
+      - name: Check ix
+        run: |
+          set -euo pipefail
+          export IX_HOME="$RUNNER_TEMP/ix-home"
+          command -v ix
+          test "$(ix --version)" = "$IX_VERSION"
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Tools against the real ix (backend unreachable)
+        env:
+          IX_EXPECTED_VERSION: ${{ env.IX_VERSION }}
+        run: node --test tests/real-ix/*.test.mjs
+
   # ── Aggregate gate ───────────────────────────────────────────────────────
   # One stable required-status-check context. Fails if any upstream job failed
   # OR was skipped/cancelled, so the job graph can be reshaped without orphaning
@@ -80,12 +141,14 @@ jobs:
   ci-success:
     name: CI Passed
     if: always()
-    needs: [test, shellcheck]
+    needs: [test, shellcheck, real-ix]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs succeeded
         run: |
           echo "test=${{ needs.test.result }}"
           echo "shellcheck=${{ needs.shellcheck.result }}"
+          echo "real-ix=${{ needs.real-ix.result }}"
           [ "${{ needs.test.result }}" = "success" ] \
-            && [ "${{ needs.shellcheck.result }}" = "success" ]
+            && [ "${{ needs.shellcheck.result }}" = "success" ] \
+            && [ "${{ needs.real-ix.result }}" = "success" ]
