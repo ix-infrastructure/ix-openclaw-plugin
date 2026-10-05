@@ -84,7 +84,7 @@ test("ix-decide allows a new file as low risk, not as unavailable", withFake(asy
     const out = await decide([file]);
     assert.match(out, /Verdict:\*\* ALLOW/, file);
     assert.match(out, /Risk:\*\* LOW/, file);
-    assert.match(out, new RegExp(`New \\(not in the graph yet\\):\\*\\* \`${file.replace(/[./]/g, "\\$&")}\``), file);
+    assert.ok(out.includes(`**New (not in the graph yet):** \`${file}\``), `${file}:\n${out}`);
     assert.match(out, /new files have no dependents/, file);
     assert.doesNotMatch(out, /unavailable|Not assessed/i, file);
   }
