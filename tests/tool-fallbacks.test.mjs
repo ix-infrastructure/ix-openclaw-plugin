@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { installFakeIx } from "./fake-ix.mjs";
 import * as ixDecide from "../dist/tools/ix-decide.js";
 import * as ixDocsTool from "../dist/tools/ix-docs-tool.js";
 import * as ixExplain from "../dist/tools/ix-explain.js";
@@ -50,7 +51,14 @@ test.afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-test("all tools return strings when the backend is unavailable", async () => {
+test("all tools return strings when the backend is unavailable", async (t) => {
+  // The tools spawn whatever `ix` is first on PATH. Without the fake this ran
+  // the developer's own CLI against their own backend, in this checkout -- not
+  // "unavailable" at all, and dependent on what that machine had installed.
+  const ix = installFakeIx();
+  ix.setUnreachable();
+  t.after(() => ix.restore());
+
   // Tools reach the backend only through `ix` (PL-02): an in-process fetch
   // would skip the CLI's workspace scoping and token.
   const fetched = [];
@@ -66,4 +74,5 @@ test("all tools return strings when the backend is unavailable", async () => {
     assert.ok(result.length > 0, `${toolModule.name} should not return an empty string`);
     assert.deepEqual(fetched.slice(before), [], `${toolModule.name} must not call the backend over HTTP`);
   }
+  assert.ok(ix.calls().length > 0, "the tools must have run the fake ix, not one found elsewhere on PATH");
 });

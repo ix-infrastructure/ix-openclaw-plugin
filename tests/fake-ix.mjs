@@ -59,6 +59,16 @@ if (unmapped && ["locate", "overview", "stats", "impact", "explain", "inventory"
   process.exit(1);
 }
 
+// setUnreachable(): every backend call fails as the real CLI (v0.12.0) does in
+// a registered workspace with its backend down -- nothing on stdout, the
+// reason on stderr, exit 1. Only --version and the ripgrep-backed \`text\`
+// work without a backend.
+let unreachable = false;
+try { statSync(path.join(dir, "unreachable")); unreachable = true; } catch {}
+if (unreachable && command !== "--version" && command !== "text") {
+  fail("Error: fetch failed (bad port)");
+}
+
 switch (command) {
   case "map": {
     const positional = rest.filter((arg) => !arg.startsWith("-"));
@@ -164,6 +174,10 @@ export function installFakeIx() {
     /** Make graph reads fail with ix's workspace_not_mapped record. */
     setUnmapped() {
       writeFileSync(path.join(dir, "unmapped"), "");
+    },
+    /** Make graph reads fail as ix does with its backend down: stderr only. */
+    setUnreachable() {
+      writeFileSync(path.join(dir, "unreachable"), "");
     },
     setMapped(roots) {
       writeFileSync(path.join(dir, "mapped-roots"), roots.join("\n") + "\n");
