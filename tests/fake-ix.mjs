@@ -61,12 +61,13 @@ if (unmapped && ["locate", "overview", "stats", "impact", "explain", "inventory"
 
 // setUnreachable(): every backend call fails as the real CLI (v0.12.0) does in
 // a registered workspace with its backend down -- nothing on stdout, the
-// reason on stderr, exit 1. Only --version and the ripgrep-backed \`text\`
+// reason on stderr (in ANSI red), exit 1. Only --version and the ripgrep-backed \`text\`
 // work without a backend.
 let unreachable = false;
 try { statSync(path.join(dir, "unreachable")); unreachable = true; } catch {}
 if (unreachable && command !== "--version" && command !== "text") {
-  fail("Error: fetch failed (bad port)");
+  // Coloured, as the real CLI's stderr is even when piped.
+  fail("\\u001b[31mError: fetch failed (bad port)\\u001b[39m");
 }
 
 switch (command) {
@@ -110,6 +111,12 @@ switch (command) {
     // "FAIL": answer as the real CLI does for a file it cannot measure.
     if (canned[target] === "FAIL") {
       process.stdout.write(JSON.stringify({ error: "workspace_not_mapped", message: "No workspace covers this directory." }) + "\\n");
+      process.exit(1);
+    }
+    // A canned error record ({"error": ...}) is printed and exits 1, as the
+    // real CLI does for every record it reports as an error.
+    if (canned[target] && typeof canned[target] === "object" && "error" in canned[target]) {
+      process.stdout.write(JSON.stringify(canned[target]) + "\\n");
       process.exit(1);
     }
     process.stdout.write(JSON.stringify(canned[target] ?? {}) + "\\n");
@@ -163,7 +170,10 @@ export function installFakeIx() {
     mapCalls() {
       return this.calls().filter((call) => call.argv[0] === "map");
     },
-    /** Answer `ix impact <target>` with `responses[target]` (ix-decide reads it). */
+    /**
+     * Answer `ix impact <target>` with `responses[target]` (ix-decide reads it):
+     * an impact object (exit 0), an error record object (exit 1), or "FAIL".
+     */
     setImpact(responses) {
       writeFileSync(path.join(dir, "impact.json"), JSON.stringify(responses));
     },

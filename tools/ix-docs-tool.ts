@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { IxCommandError, ixUnavailableMessage, runIx, ToolContext, toolDirectory } from "./base.ts";
+import { IxCommandError, ixUnavailableMessage, runIx, stripAnsi, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-docs-tool";
 export const description =
@@ -202,7 +202,7 @@ async function safeRun(args: string[], dir: string, errors?: string[]): Promise<
   } catch (error: unknown) {
     const stdout = error instanceof IxCommandError ? error.stdout : "";
     if (stdout.trim()) return stdout;
-    errors?.push(error instanceof Error ? error.message : String(error));
+    errors?.push(stripAnsi(error instanceof Error ? error.message : String(error)).trim());
     return null;
   }
 }

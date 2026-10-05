@@ -266,6 +266,44 @@ test("before_tool_call asks for approval on REVIEW, with the host's result shape
   }
 });
 
+test("before_tool_call does not ask for approval when Ix cannot answer", async () => {
+  // Was REVIEW (and so a 2-minute allow-once/deny prompt) on every edit
+  // wherever the workspace was not mapped or the backend was down.
+  for (const mode of ["setUnmapped", "setUnreachable"]) {
+    const env = sandbox();
+    try {
+      env.ix[mode]();
+      const { hooks } = recordingApi(withWorkspaceApi(env.dir));
+      const result = await hooks.get("before_tool_call").handler(
+        { toolName: "edit", toolCallId: "u1", params: { path: path.join(env.dir, "lib.ts"), edits: [] } },
+        { agentId: "main", toolName: "edit" }
+      );
+      assert.equal(result, undefined, `${mode}: no block, no approval prompt`);
+      assert.ok(env.ix.calls().some((call) => call.argv[0] === "impact"), `${mode}: ix-decide still asked ix`);
+    } finally {
+      env.restore();
+    }
+  }
+});
+
+test("before_tool_call does not ask for approval to write a new file", async () => {
+  const env = sandbox();
+  try {
+    const target = path.join(env.dir, "fresh.ts");
+    env.ix.setImpact({
+      [target]: { error: "unresolved_target", message: `No file "${target}" in the graph, and none at that path on disk.`, reason: "file_not_found" },
+    });
+    const { hooks } = recordingApi(withWorkspaceApi(env.dir));
+    const result = await hooks.get("before_tool_call").handler(
+      { toolName: "write", toolCallId: "n1", params: { path: target, content: "export {};" } },
+      { agentId: "main", toolName: "write" }
+    );
+    assert.equal(result, undefined, "a new file is ALLOW: silent");
+  } finally {
+    env.restore();
+  }
+});
+
 test("before_tool_call sends every apply_patch file to ix-decide", async () => {
   const env = sandbox();
   try {
@@ -278,7 +316,8 @@ test("before_tool_call sends every apply_patch file to ix-decide", async () => {
     );
 
     assert.equal(result, undefined, "ALLOW is silent");
-    const impacts = env.ix.calls().filter((call) => call.argv[0] === "impact").map((call) => call.argv[1]);
+    // Sorted: ix-decide measures files concurrently, so call order is not fixed.
+    const impacts = env.ix.calls().filter((call) => call.argv[0] === "impact").map((call) => call.argv[1]).sort();
     assert.deepEqual(impacts, [path.join(env.dir, "a.ts"), path.join(env.dir, "b.ts")]);
   } finally {
     env.restore();
