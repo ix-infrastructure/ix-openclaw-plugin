@@ -50,6 +50,26 @@ function fail(message) {
 const [command, ...rest] = argv;
 const has = (flag) => rest.includes(flag);
 
+// setUnmapped(): graph reads answer as the real CLI does where no workspace
+// covers the directory -- an error record on stdout, exit 1.
+let unmapped = false;
+try { statSync(path.join(dir, "unmapped")); unmapped = true; } catch {}
+if (unmapped && ["locate", "overview", "stats", "impact", "explain", "inventory"].includes(command)) {
+  process.stdout.write(JSON.stringify({ error: "workspace_not_mapped", message: "No workspace covers this directory. Run ix map." }) + "\\n");
+  process.exit(1);
+}
+
+// setUnreachable(): every backend call fails as the real CLI (v0.12.0) does in
+// a registered workspace with its backend down -- nothing on stdout, the
+// reason on stderr (in ANSI red), exit 1. Only --version and the ripgrep-backed \`text\`
+// work without a backend.
+let unreachable = false;
+try { statSync(path.join(dir, "unreachable")); unreachable = true; } catch {}
+if (unreachable && command !== "--version" && command !== "text") {
+  // Coloured, as the real CLI's stderr is even when piped.
+  fail("\\u001b[31mError: fetch failed (bad port)\\u001b[39m");
+}
+
 switch (command) {
   case "map": {
     const positional = rest.filter((arg) => !arg.startsWith("-"));
@@ -88,6 +108,17 @@ switch (command) {
     let canned = {};
     try { canned = JSON.parse(readFileSync(path.join(dir, "impact.json"), "utf8")); } catch {}
     const target = rest.find((arg) => !arg.startsWith("-") && arg !== "json");
+    // "FAIL": answer as the real CLI does for a file it cannot measure.
+    if (canned[target] === "FAIL") {
+      process.stdout.write(JSON.stringify({ error: "workspace_not_mapped", message: "No workspace covers this directory." }) + "\\n");
+      process.exit(1);
+    }
+    // A canned error record ({"error": ...}) is printed and exits 1, as the
+    // real CLI does for every record it reports as an error.
+    if (canned[target] && typeof canned[target] === "object" && "error" in canned[target]) {
+      process.stdout.write(JSON.stringify(canned[target]) + "\\n");
+      process.exit(1);
+    }
     process.stdout.write(JSON.stringify(canned[target] ?? {}) + "\\n");
     break;
   }
@@ -139,13 +170,24 @@ export function installFakeIx() {
     mapCalls() {
       return this.calls().filter((call) => call.argv[0] === "map");
     },
-    /** Answer `ix impact <target>` with `responses[target]` (ix-decide reads it). */
+    /**
+     * Answer `ix impact <target>` with `responses[target]` (ix-decide reads it):
+     * an impact object (exit 0), an error record object (exit 1), or "FAIL".
+     */
     setImpact(responses) {
       writeFileSync(path.join(dir, "impact.json"), JSON.stringify(responses));
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
       writeFileSync(path.join(dir, "briefing.txt"), text);
+    },
+    /** Make graph reads fail with ix's workspace_not_mapped record. */
+    setUnmapped() {
+      writeFileSync(path.join(dir, "unmapped"), "");
+    },
+    /** Make graph reads fail as ix does with its backend down: stderr only. */
+    setUnreachable() {
+      writeFileSync(path.join(dir, "unreachable"), "");
     },
     setMapped(roots) {
       writeFileSync(path.join(dir, "mapped-roots"), roots.join("\n") + "\n");

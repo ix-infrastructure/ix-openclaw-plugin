@@ -75,6 +75,11 @@ export function parseIxJson<T>(raw: string): T {
   throw new Error("Failed to parse ix JSON output");
 }
 
+/** ix colours its stderr even when piped; error text quoted to the model should not carry the escapes. */
+export function stripAnsi(text: string): string {
+  return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 export function ixUnavailableMessage(title: string, body?: string, error?: string): string {
   const lines = [`## ${title}`, ""];
 

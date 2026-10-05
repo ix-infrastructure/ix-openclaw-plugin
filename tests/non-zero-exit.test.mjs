@@ -74,21 +74,27 @@ esac`);
   }
 });
 
-test("ix_docs still reports not-found when ix exits non-zero with no output", async () => {
+// A failure with no body says nothing about the target: ix could not answer.
+// These two pinned "Not found in graph" until that was found to tell a user
+// with the backend down that their symbol does not exist.
+test("ix_docs reports ix unavailable when ix exits non-zero with no output", async () => {
   const stub = withStubIx("exit 1");
   try {
     const output = await ixDocsTool.execute({ target: "SomeSymbol", depth: "brief" }, { directory: stub.dir });
-    assert.match(output, /Not found in graph/);
+    assert.match(output, /ix unavailable/);
+    assert.doesNotMatch(output, /Not found in graph/);
   } finally {
     stub.restore();
   }
 });
 
-test("ix_docs still reports not-found when ix is absent entirely", async () => {
+test("ix_docs reports ix unavailable when ix is absent entirely", async () => {
   const stub = withStubIx(null);
   try {
     const output = await ixDocsTool.execute({ target: "SomeSymbol", depth: "brief" }, { directory: stub.dir });
-    assert.match(output, /Not found in graph/);
+    assert.match(output, /ix unavailable/);
+    assert.match(output, /ENOENT/);
+    assert.doesNotMatch(output, /Not found in graph/);
   } finally {
     stub.restore();
   }

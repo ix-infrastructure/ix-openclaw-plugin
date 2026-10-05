@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { IxCommandError, runIx, ToolContext, toolDirectory } from "./base.ts";
+import { IxCommandError, ixUnavailableMessage, runIx, stripAnsi, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-docs-tool";
 export const description =
@@ -31,11 +31,40 @@ interface Params {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   const depth = params.depth ?? "standard";
-  const [locateOut, overviewOut, statsOut] = await Promise.all([
-    safeRun(["locate", params.target, "--format", "json"], dir),
-    safeRun(["overview", params.target, "--format", "json"], dir),
+  // Why a call produced nothing at all (ix missing, backend down).
+  const runErrors: string[] = [];
+  const [locateRaw, overviewRaw, statsRaw] = await Promise.all([
+    safeRun(["locate", params.target, "--format", "json"], dir, runErrors),
+    safeRun(["overview", params.target, "--format", "json"], dir, runErrors),
     depth !== "brief" ? safeRun(["stats", "--format", "json"], dir) : Promise.resolve(null),
   ]);
+  // A failed call's stdout can be ix's error record ({"error": ...}); that is
+  // a reason, not data, and used to render as an empty context section.
+  const failures = [locateRaw, overviewRaw].map(errorRecord).filter((r): r is IxErrorRecord => r !== null);
+  const locateOut = errorRecord(locateRaw) ? null : locateRaw;
+  const overviewOut = errorRecord(overviewRaw) ? null : overviewRaw;
+  const statsOut = errorRecord(statsRaw) ? null : statsRaw;
+
+  if (!locateOut && !overviewOut && failures.length > 0) {
+    const first = failures[0];
+    return [
+      `## ix-docs-tool: ${params.target}`,
+      "",
+      `**ix could not answer:** \`${first.error}\`${first.message ? ` — ${first.message}` : ""}`,
+      "",
+      "Try: `ix status`, then `ix map` if the project is not indexed.",
+    ].join("\n");
+  }
+
+  // Both calls failed without a record: ix is missing or cannot reach its
+  // backend. That is not "not found in graph".
+  if (!locateOut && !overviewOut && runErrors.length > 0) {
+    return ixUnavailableMessage(
+      `ix-docs-tool: ${params.target}`,
+      "**ix unavailable.** Ensure the ix CLI is installed and its backend is running (`ix status`).",
+      runErrors[0]
+    );
+  }
 
   if (!locateOut && !overviewOut) {
     return [
@@ -148,11 +177,32 @@ function formatOverview(overview: any): string {
  * A failure with no output still maps to null, so the ix-unavailable path is
  * unchanged.
  */
-async function safeRun(args: string[], dir: string): Promise<string | null> {
+interface IxErrorRecord {
+  error: string;
+  message?: string;
+}
+
+/** The error record in an ix JSON answer, or null when it is data (or not JSON). */
+function errorRecord(out: string | null): IxErrorRecord | null {
+  if (!out) return null;
+  try {
+    const parsed = JSON.parse(out) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as IxErrorRecord).error === "string") {
+      return parsed as IxErrorRecord;
+    }
+  } catch {
+    // Not JSON: not an error record.
+  }
+  return null;
+}
+
+async function safeRun(args: string[], dir: string, errors?: string[]): Promise<string | null> {
   try {
     return await runIx(args, { cwd: dir });
   } catch (error: unknown) {
     const stdout = error instanceof IxCommandError ? error.stdout : "";
-    return stdout.trim() ? stdout : null;
+    if (stdout.trim()) return stdout;
+    errors?.push(stripAnsi(error instanceof Error ? error.message : String(error)).trim());
+    return null;
   }
 }
