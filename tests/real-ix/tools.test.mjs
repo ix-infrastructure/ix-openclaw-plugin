@@ -99,7 +99,10 @@ const TOOLS = [
 // returns results here. Every other tool reads the graph, and with the backend
 // down it must say so rather than present an answer.
 const WORKS_WITHOUT_BACKEND = new Set(["ix-locate"]);
-const FAILURE_VISIBLE = /unavailable|unreachable|not indexed|not found|not available|requires Ix Pro|DEGRADED/i;
+// No "not found": with the backend down nothing was looked up, so a tool that
+// says its target was not found is misreporting the failure (ix-docs-tool did).
+const FAILURE_VISIBLE = /unavailable|unreachable|not indexed|not available|requires Ix Pro|DEGRADED/i;
+const NOT_FOUND = /not found/i;
 
 // Headers that are not `## <tool name>`.
 const HEADER = { "ix-docs-tool": /^## (ix-docs-tool|Context):/ };
@@ -107,14 +110,9 @@ const HEADER = { "ix-docs-tool": /^## (ix-docs-tool|Context):/ };
 // Real plugin bugs this job exposed, tracked here as `todo` so the job stays a
 // useful gate for everything else. Remove an entry once its fix lands — the
 // subtest then has to pass outright. Keyed `<tool>` or `<tool>@<state>`.
-const KNOWN_BUGS = {
-  "ix-decide":
-    "fails open: when every `ix impact` call fails, the null results are skipped and " +
-    "the verdict is synthesized from zero data as ALLOW / LOW / 0 dependents (tools/ix-decide.ts)",
-  "ix-docs-tool@unmapped":
-    "safeRun keeps stdout of a failed ix call, so ix's {\"error\":\"workspace_not_mapped\",…} record " +
-    "is treated as a result and the tool returns an empty `## Context:` section, dropping the error (tools/ix-docs-tool.ts)",
-};
+// Empty since ix-decide stopped synthesizing ALLOW / LOW from no data and
+// ix-docs-tool stopped rendering ix's error record as an empty section.
+const KNOWN_BUGS = {};
 
 // What the real CLI prints when it rejects argv (commander's wording).
 const REJECTED_ARGV = /unknown option|unknown command|too many arguments|missing required argument|invalid argument/i;
@@ -262,6 +260,14 @@ for (const [state, registered] of [["unmapped", false], ["unreachable", true]]) 
         }
         if (!WORKS_WITHOUT_BACKEND.has(tool.name)) {
           assert.match(output, FAILURE_VISIBLE, `${tool.name} must surface ix's failure (e.g. "unavailable"), not present an answer${report}`);
+          assert.doesNotMatch(output, NOT_FOUND, `${tool.name} must say ix could not answer, not that the target was not found${report}`);
+        }
+        if (tool.name === "ix-decide") {
+          // ALLOW with a note, not REVIEW: a REVIEW is an approval prompt on
+          // every edit, and ix answered nothing that says the edit is risky.
+          assert.match(output, /\*\*Verdict:\*\* ALLOW/, `ix-decide must not gate an edit ix could not assess${report}`);
+          assert.match(output, /\*\*Risk:\*\* UNKNOWN/, `ix-decide must not report a risk ix never gave${report}`);
+          assert.match(output, /Not assessed \(Ix unavailable\)/, `ix-decide must say the edit went unassessed${report}`);
         }
       });
     }
