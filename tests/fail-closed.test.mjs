@@ -50,3 +50,17 @@ test("ix-docs-tool reports ix's error record instead of an empty section", async
     ix.restore();
   }
 });
+
+test("ix-docs-tool says ix is unavailable, not \"not found\", when the backend is down", async () => {
+  const ix = installFakeIx();
+  try {
+    ix.setUnreachable();
+    const out = await ixDocsTool.execute({ target: "tools/base.ts", depth: "brief" }, { directory: ix.dir });
+    assert.match(out, /^## ix-docs-tool: tools\/base\.ts/);
+    assert.match(out, /ix unavailable/);
+    assert.match(out, /fetch failed/);
+    assert.doesNotMatch(out, /Not found in graph/);
+  } finally {
+    ix.restore();
+  }
+});

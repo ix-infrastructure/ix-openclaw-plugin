@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { IxCommandError, runIx, ToolContext, toolDirectory } from "./base.ts";
+import { IxCommandError, ixUnavailableMessage, runIx, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-docs-tool";
 export const description =
@@ -31,9 +31,11 @@ interface Params {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   const depth = params.depth ?? "standard";
+  // Why a call produced nothing at all (ix missing, backend down).
+  const runErrors: string[] = [];
   const [locateRaw, overviewRaw, statsRaw] = await Promise.all([
-    safeRun(["locate", params.target, "--format", "json"], dir),
-    safeRun(["overview", params.target, "--format", "json"], dir),
+    safeRun(["locate", params.target, "--format", "json"], dir, runErrors),
+    safeRun(["overview", params.target, "--format", "json"], dir, runErrors),
     depth !== "brief" ? safeRun(["stats", "--format", "json"], dir) : Promise.resolve(null),
   ]);
   // A failed call's stdout can be ix's error record ({"error": ...}); that is
@@ -52,6 +54,16 @@ export async function execute(params: Params, context: ToolContext): Promise<str
       "",
       "Try: `ix status`, then `ix map` if the project is not indexed.",
     ].join("\n");
+  }
+
+  // Both calls failed without a record: ix is missing or cannot reach its
+  // backend. That is not "not found in graph".
+  if (!locateOut && !overviewOut && runErrors.length > 0) {
+    return ixUnavailableMessage(
+      `ix-docs-tool: ${params.target}`,
+      "**ix unavailable.** Ensure the ix CLI is installed and its backend is running (`ix status`).",
+      runErrors[0]
+    );
   }
 
   if (!locateOut && !overviewOut) {
@@ -184,11 +196,13 @@ function errorRecord(out: string | null): IxErrorRecord | null {
   return null;
 }
 
-async function safeRun(args: string[], dir: string): Promise<string | null> {
+async function safeRun(args: string[], dir: string, errors?: string[]): Promise<string | null> {
   try {
     return await runIx(args, { cwd: dir });
   } catch (error: unknown) {
     const stdout = error instanceof IxCommandError ? error.stdout : "";
-    return stdout.trim() ? stdout : null;
+    if (stdout.trim()) return stdout;
+    errors?.push(error instanceof Error ? error.message : String(error));
+    return null;
   }
 }
