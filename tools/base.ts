@@ -1,9 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { execFile } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
 
 export interface ToolContext {
   directory: string;
@@ -101,54 +98,6 @@ export function ixUnavailableMessage(title: string, body?: string, error?: strin
   }
 
   return lines.join("\n");
-}
-
-// ── Ix Backend HTTP Client (port 8090) ───────────────────────────────────────
-
-const IX_HTTP_TIMEOUT_MS = 15_000;
-
-function getIxBackendEndpoint(): string {
-  if (process.env.IX_ENDPOINT) return process.env.IX_ENDPOINT;
-  try {
-    const configPath = join(homedir(), ".ix", "config.yaml");
-    if (existsSync(configPath)) {
-      const raw = readFileSync(configPath, "utf-8");
-      const match = raw.match(/^endpoint:\s*(\S+)/m);
-      if (match?.[1]) return match[1];
-    }
-  } catch {
-    // Fall through to default.
-  }
-  return "http://localhost:8090";
-}
-
-export async function ixHttpGet<T>(path: string, timeoutMs = IX_HTTP_TIMEOUT_MS): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${getIxBackendEndpoint()}${path}`, { signal: controller.signal });
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-    return res.json() as Promise<T>;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function ixHttpPost<T>(path: string, body: unknown, timeoutMs = IX_HTTP_TIMEOUT_MS): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${getIxBackendEndpoint()}${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
-    return res.json() as Promise<T>;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function tryParseJson<T>(value: string): T | null {

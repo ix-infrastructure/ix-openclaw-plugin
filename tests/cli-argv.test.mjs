@@ -36,6 +36,9 @@ const FORBIDDEN = [
   [/\["map", (targetPath|filePath|file)\b/, 'runIx(["map", <file>])'],
   // The v2 Core Runtime does not exist.
   [/127\.0\.0\.1:7743|\/v2\/(ix_query|ix_decide|graph|ingest|status)/, "v2 runtime route"],
+  // Every backend read goes through `ix`, which scopes it to the workspace and
+  // carries the token. A direct HTTP call skips both (PL-02).
+  [/\bixHttp(Get|Post)\b|\bgetIxBackendEndpoint\b|["'`]\/v1\//, "direct backend HTTP call (go through ix)"],
 ];
 
 function shippedFiles() {

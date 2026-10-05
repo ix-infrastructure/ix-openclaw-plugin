@@ -51,13 +51,19 @@ test.afterEach(() => {
 });
 
 test("all tools return strings when the backend is unavailable", async () => {
-  globalThis.fetch = async () => {
+  // Tools reach the backend only through `ix` (PL-02): an in-process fetch
+  // would skip the CLI's workspace scoping and token.
+  const fetched = [];
+  globalThis.fetch = async (url) => {
+    fetched.push(String(url));
     throw new Error("offline");
   };
 
   for (const [toolModule, params] of toolCases) {
+    const before = fetched.length;
     const result = await toolModule.execute(params, { directory: projectRoot });
     assert.equal(typeof result, "string", `${toolModule.name} should return a string`);
     assert.ok(result.length > 0, `${toolModule.name} should not return an empty string`);
+    assert.deepEqual(fetched.slice(before), [], `${toolModule.name} must not call the backend over HTTP`);
   }
 });

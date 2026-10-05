@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixHttpGet, ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-subsystems";
@@ -24,26 +24,13 @@ export async function execute(
 
   let raw: any;
   try {
-    raw = await ixHttpGet<any>("/v1/subsystems/map");
-    // Normalize API field names to match CLI --format json output.
-    if (Array.isArray(raw.regions)) {
-      raw.regions = raw.regions.map((r: any) => ({
-        ...r,
-        files: r.files ?? r.file_count,
-        children: r.children ?? r.child_region_count,
-        interfaces: r.interfaces ?? r.interface_node_count,
-      }));
-    }
-  } catch {
-    try {
-      raw = await runIxJson<any>(["subsystems", "--format", "json"], { cwd: dir });
-    } catch (error) {
-      return ixUnavailableMessage(
-        "ix-subsystems",
-        "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-        getErrorMessage(error)
-      );
-    }
+    raw = await runIxJson<any>(["subsystems", "--format", "json"], { cwd: dir });
+  } catch (error) {
+    return ixUnavailableMessage(
+      "ix-subsystems",
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
+      getErrorMessage(error)
+    );
   }
 
   const regions = raw.regions ?? [];
