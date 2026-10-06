@@ -4,7 +4,7 @@ import { IxCommandError, parseIxJson, runIx, stripAnsi, ToolContext, toolDirecto
 
 export const name = "ix-decide";
 export const description =
-  "Get a policy verdict before editing files. Returns ALLOW, REVIEW, or BLOCK with required actions and blast radius evidence. Used by the pre-edit hook and by ix-plan for high-risk changes.";
+  "Get a policy verdict before editing files. Returns ALLOW or REVIEW (flagged high risk when the change is critical or widely depended on) with required actions and blast radius evidence. Used by the pre-edit hook and by ix-plan for high-risk changes.";
 
 export const parameters = {
   type: "object",
@@ -36,11 +36,61 @@ interface Params {
   risk_tolerance?: "low" | "medium" | "high";
 }
 
+/**
+ * The fields of `ix impact <file> --format json` that the verdict reads, as
+ * the released CLI prints them (ix-cli/src/cli/commands/impact.ts, the same
+ * from v0.12.0 to main). A file resolves as a container, so its `summary`
+ * carries the container counts; a symbol target would carry the leaf counts
+ * (`callers`/`callees`) instead, accepted here so a non-file path still reads.
+ * No released ix ever printed the `risk`/`dependentCount`/`subsystems` this
+ * tool used to read, so there is no older shape to fall back to.
+ */
 interface ImpactResult {
-  risk?: string;
-  dependentCount?: number;
-  transitiveCount?: number;
-  subsystems?: string[];
+  riskLevel?: string;
+  summary?: {
+    members?: number;
+    directImporters?: number;
+    directDependents?: number;
+    memberLevelCallers?: number;
+    callers?: number;
+  };
+  propagationBuckets?: Array<{ region?: string; count?: number }>;
+}
+
+/** The parts of one impact record the verdict uses. */
+interface Reading {
+  risk: string;
+  dependents: number;
+  regions: string[];
+}
+
+const RISK_LEVELS = new Set(["low", "medium", "high", "critical"]);
+
+function readImpact(result: ImpactResult): Reading {
+  const level = typeof result.riskLevel === "string" ? result.riskLevel.toLowerCase() : "";
+  // ix withholds the level as "unknown" only on a degraded graph, which assess()
+  // already sorts out as unassessed; anything else unrecognised reads as low,
+  // and the dependent count below can still raise the verdict.
+  const risk = RISK_LEVELS.has(level) ? level : "low";
+
+  const summary = result.summary ?? {};
+  const count = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
+  // Importers and direct dependents are disjoint edge sets into the file node
+  // (IMPORTS vs CALLS/REFERENCES), so they add. Member-level callers are the
+  // callers of the file's functions and classes: mostly the same code as the
+  // importers, seen a level down (six files importing two functions they each
+  // call give 6 importers and 12 member callers). Adding them would count each
+  // dependent twice, so the larger of the two views is taken instead.
+  const fileLevel = count(summary.directImporters) + count(summary.directDependents);
+  const dependents = Math.max(fileLevel, count(summary.memberLevelCallers), count(summary.callers));
+
+  // ix has no "subsystems" field: the regions its dependents fall in are the
+  // propagation buckets, so those are the subsystems a change reaches.
+  const regions = (result.propagationBuckets ?? [])
+    .map((bucket) => bucket?.region)
+    .filter((region): region is string => typeof region === "string" && region.length > 0);
+
+  return { risk, dependents, regions };
 }
 
 /**
@@ -90,36 +140,55 @@ async function formatImpactVerdict(
   let maxRisk = "low";
   let totalDependents = 0;
   const subsystems = new Set<string>();
+  const readings = new Map<string, Reading>();
 
-  for (const { result } of measured) {
-    const risk = (result.risk ?? "low").toLowerCase();
+  for (const { path, result } of measured) {
+    const reading = readImpact(result);
+    readings.set(path, reading);
+    const risk = reading.risk;
     if (risk === "critical" || (risk === "high" && maxRisk !== "critical")) {
       maxRisk = risk;
     } else if (risk === "medium" && maxRisk === "low") {
       maxRisk = risk;
     }
-    totalDependents += result.dependentCount ?? 0;
-    for (const subsystem of result.subsystems ?? []) {
-      subsystems.add(subsystem);
-    }
+    totalDependents += reading.dependents;
+    for (const region of reading.regions) subsystems.add(region);
   }
 
   const toleranceMultiplier = riskTolerance === "low" ? 0.5 : riskTolerance === "high" ? 2 : 1;
   const reviewThreshold = Math.round(5 * toleranceMultiplier);
-  const blockThreshold = Math.round(20 * toleranceMultiplier);
+  const highRiskThreshold = Math.round(20 * toleranceMultiplier);
 
   let verdict: string;
   let requiredAction: string;
+  let reason: string | null = null;
 
   // Only an answer from ix can raise the verdict. A REVIEW makes OpenClaw stop
   // and ask the user, so it is kept for changes ix measured as risky: failing
   // closed on "ix could not answer" put that prompt on every edit wherever Ix
   // was missing, down or not mapped, and on every new file.
-  if (maxRisk === "critical" || totalDependents >= blockThreshold) {
-    verdict = "BLOCK";
-    requiredAction = "Run `/ix-plan` to generate a sequenced change plan before proceeding.";
+  //
+  // Nothing is blocked outright. What used to be a BLOCK (a critical file, or
+  // more dependents than the high-risk threshold) is a REVIEW that says it is
+  // high risk: the user can see why and still approve it, where a block left
+  // the agent no way forward but to stop.
+  const highRisk = maxRisk === "critical" || totalDependents >= highRiskThreshold;
+  if (highRisk) {
+    verdict = "REVIEW";
+    // "High risk" leads the reason: the pre-edit hook keys the prompt's
+    // severity on it, and it is what the user reads first in the prompt.
+    const why = [
+      maxRisk === "critical" ? "Ix rates this a critical file" : null,
+      totalDependents >= highRiskThreshold ? `${totalDependents} dependents (high-risk threshold ${highRiskThreshold})` : null,
+    ].filter(Boolean);
+    reason = `High risk: ${why.join("; ")}.`;
+    requiredAction = "Approve only if this change was planned; run `/ix-plan` for a sequenced change plan first.";
   } else if (maxRisk === "high" || maxRisk === "medium" || totalDependents >= reviewThreshold) {
     verdict = "REVIEW";
+    reason =
+      maxRisk === "low"
+        ? `${totalDependents} dependents (review threshold ${reviewThreshold}).`
+        : `Ix rates this ${maxRisk} risk; ${totalDependents} dependents.`;
     requiredAction = "Review callers and run tests after this change.";
   } else {
     verdict = "ALLOW";
@@ -143,6 +212,7 @@ async function formatImpactVerdict(
     `## ix-decide: ${paths.length === 1 ? paths[0] : `${paths.length} files`}`,
     "",
     `**Verdict:** ${verdict}`,
+    ...(reason ? [`**Reason:** ${reason}`] : []),
     // Nothing measured and nothing new means ix said nothing; "LOW" would be
     // a reading it never gave.
     `**Risk:** ${measured.length === 0 && newFiles.length === 0 ? "UNKNOWN" : maxRisk.toUpperCase()}`,
@@ -167,7 +237,7 @@ async function formatImpactVerdict(
     for (const a of assessments) {
       const detail =
         a.kind === "measured"
-          ? `${(a.result.risk ?? "low").toUpperCase()}, ${a.result.dependentCount ?? 0} dependents`
+          ? `${readings.get(a.path)!.risk.toUpperCase()}, ${readings.get(a.path)!.dependents} dependents`
           : a.kind === "new"
             ? "NEW, not in the graph yet"
             : `NOT ASSESSED, ${a.reason}`;

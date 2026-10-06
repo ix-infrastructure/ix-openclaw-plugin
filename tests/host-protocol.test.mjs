@@ -19,7 +19,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { installFakeIx, waitFor } from "./fake-ix.mjs";
+import { impactRecord, installFakeIx, waitFor } from "./fake-ix.mjs";
 import entry from "../dist/plugins/ix-plugin.js";
 import {
   WRITE_TOOL_NAMES,
@@ -226,7 +226,10 @@ test("before_tool_call gates an edit through ix-decide in the agent workspace", 
     const workspace = path.join(env.dir, "ws");
     mkdirSync(path.join(workspace, "src"), { recursive: true });
     const target = path.join(workspace, "src", "core.ts");
-    env.ix.setImpact({ [target]: { risk: "critical", dependentCount: 40 } });
+    // What the real CLI says about a file six others import (12 calls into
+    // its members): high risk. This read as LOW / 0 dependents before ix-decide
+    // read the real field names, and so was never gated.
+    env.ix.setImpact({ [target]: impactRecord({ riskLevel: "high", importers: 6, memberCallers: 12 }) });
     const { hooks } = recordingApi(withWorkspaceApi(workspace));
     const before = hooks.get("before_tool_call").handler;
 
@@ -235,10 +238,34 @@ test("before_tool_call gates an edit through ix-decide in the agent workspace", 
       { agentId: "main", toolName: "edit" }
     );
 
-    assert.equal(result?.block, true);
-    assert.match(result.blockReason, /BLOCK/);
+    assert.equal(result?.block, undefined, "nothing is blocked outright");
+    assert.equal(result?.requireApproval?.title, "Ix review required for core.ts");
+    assert.match(result.requireApproval.description, /Verdict: REVIEW/);
+    assert.match(result.requireApproval.description, /12 dependents/);
     const impact = env.ix.calls().find((call) => call.argv[0] === "impact");
     assert.deepEqual(impact.argv, ["impact", target, "--format", "json"]);
+  } finally {
+    env.restore();
+  }
+});
+
+test("before_tool_call asks, not blocks, for what used to be a BLOCK, and says it is high risk", async () => {
+  const env = sandbox();
+  try {
+    const target = path.join(env.dir, "hub.ts");
+    env.ix.setImpact({ [target]: impactRecord({ riskLevel: "critical", importers: 9, memberCallers: 40 }) });
+    const { hooks } = recordingApi(withWorkspaceApi(env.dir));
+
+    const result = await hooks.get("before_tool_call").handler(
+      { toolName: "edit", toolCallId: "c1", params: { path: target, edits: [] } },
+      { agentId: "main", toolName: "edit" }
+    );
+
+    assert.equal(result?.block, undefined, "a high-risk edit is asked about, not blocked");
+    assert.equal(result?.requireApproval?.title, "Ix review required for hub.ts (high risk)");
+    assert.equal(result.requireApproval.severity, "critical");
+    assert.deepEqual(result.requireApproval.allowedDecisions, ["allow-once", "deny"]);
+    assert.match(result.requireApproval.description, /Reason: High risk: Ix rates this a critical file; 40 dependents/);
   } finally {
     env.restore();
   }
@@ -248,7 +275,7 @@ test("before_tool_call asks for approval on REVIEW, with the host's result shape
   const env = sandbox();
   try {
     const target = path.join(env.dir, "lib.ts");
-    env.ix.setImpact({ [target]: { risk: "medium", dependentCount: 6 } });
+    env.ix.setImpact({ [target]: impactRecord({ riskLevel: "medium", importers: 2, memberCallers: 6 }) });
     const { hooks } = recordingApi(withWorkspaceApi(env.dir));
 
     const result = await hooks.get("before_tool_call").handler(

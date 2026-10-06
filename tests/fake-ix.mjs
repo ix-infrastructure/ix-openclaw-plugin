@@ -15,7 +15,12 @@
  * Every invocation is appended to `calls.log` as one JSON line
  * ({argv, cwd, autoMap}). `ix status --format json --root <r>` reports
  * graphCompleted=true only for roots listed in `mapped-roots` (one per line).
- * `ix impact <target>` answers from `impact.json` when a test set one.
+ * `ix impact <target>` answers from `impact.json` when a test set one, and
+ * otherwise with the low-risk record the real CLI prints for a file nothing
+ * depends on. Build canned answers with `impactRecord()`, which gives the real
+ * shape; a canned record in the old `risk`/`dependentCount` shape, which no
+ * released ix ever printed, fails loudly, so no test can pass on fields ix
+ * never sends.
  * `ix briefing` answers from `briefing.txt` (text|json only, like @ix/pro) and
  * fails as if Ix Pro were absent when no test set one.
  *
@@ -70,6 +75,8 @@ if (unreachable && command !== "--version" && command !== "text") {
   fail("\\u001b[31mError: fetch failed (bad port)\\u001b[39m");
 }
 
+const DEFAULT_IMPACT = ${JSON.stringify(impactRecord())};
+
 switch (command) {
   case "map": {
     const positional = rest.filter((arg) => !arg.startsWith("-"));
@@ -119,7 +126,11 @@ switch (command) {
       process.stdout.write(JSON.stringify(canned[target]) + "\\n");
       process.exit(1);
     }
-    process.stdout.write(JSON.stringify(canned[target] ?? {}) + "\\n");
+    const record = canned[target] ?? DEFAULT_IMPACT;
+    if ("risk" in record || "dependentCount" in record || "subsystems" in record) {
+      fail("fake ix: canned impact record uses fields no released ix prints (risk/dependentCount/subsystems); use impactRecord()");
+    }
+    process.stdout.write(JSON.stringify(record) + "\\n");
     break;
   }
   case "briefing": {
@@ -141,6 +152,40 @@ switch (command) {
     process.stdout.write("{}\\n");
 }
 `;
+
+/**
+ * An `ix impact <file> --format json` record in the shape the released CLI
+ * prints (v0.12.0 and main, ix-cli/src/cli/commands/impact.ts containerImpact),
+ * captured from a real run against a throwaway backend. A file resolves as a
+ * container, so its counts are `summary.{members, directImporters,
+ * directDependents, memberLevelCallers}`; the regions its dependents sit in
+ * are `propagationBuckets[].region`. There is no `risk`, `dependentCount`
+ * or `subsystems` field.
+ */
+export function impactRecord({
+  riskLevel = "low",
+  name = "core.ts",
+  members = 2,
+  importers = 0,
+  dependents = 0,
+  memberCallers = 0,
+  regions = [],
+} = {}) {
+  const record = {
+    resolvedTarget: { kind: "file", name },
+    depth: 1,
+    systemPath: [{ name: "Core", kind: "region" }],
+    riskSummary: riskLevel === "low" ? "Low risk — localized impact with limited propagation." : "High risk — widely shared dependency affecting the core layer.",
+    riskLevel,
+    riskCategory: riskLevel === "low" ? "localized" : "shared",
+    atRiskBehavior: ["Limited to immediate callers"],
+    summary: { members, directImporters: importers, directDependents: dependents, memberLevelCallers: memberCallers },
+  };
+  if (regions.length > 0) {
+    record.propagationBuckets = regions.map((region) => ({ region, regionKind: "region", count: 1, members: [{ name: "user.ts", kind: "file" }] }));
+  }
+  return record;
+}
 
 /**
  * Install the fake on PATH (replacing it, so a real `ix` cannot be reached).

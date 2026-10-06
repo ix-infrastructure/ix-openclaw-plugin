@@ -1,0 +1,44 @@
+# Copyright 2026 Ix Infrastructure Inc.
+#
+# A throwaway Ix backend for the "Real ix (released CLI)" CI job's live step:
+# the same two services as Ix's docker-compose.standalone.yml, but with pinned
+# images, no volumes (nothing survives `down`) and the host port taken from
+# IX_LIVE_PORT so a local run can stay clear of a backend already on 8090.
+#
+#   IX_LIVE_PORT=8611 docker compose -p ix-oc-live -f tests/real-ix/compose.yml up -d --wait
+#   ... docker compose -p ix-oc-live -f tests/real-ix/compose.yml down -v
+services:
+  arangodb:
+    image: arangodb:3.12.11
+    environment:
+      ARANGO_NO_AUTH: "1"
+    command: ["arangod", "--server.endpoint", "tcp://0.0.0.0:8529", "--vector-index", "true"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8529/_api/version || exit 1"]
+      interval: 3s
+      timeout: 5s
+      start_period: 60s
+      retries: 30
+
+  memory-layer:
+    # Pinned rather than `latest`, so the job measures the plugin against a
+    # known backend; bump it deliberately, as with IX_VERSION.
+    image: ghcr.io/ix-infrastructure/ix-memory-layer:1.0.32
+    ports:
+      - "127.0.0.1:${IX_LIVE_PORT:-8611}:8090"
+    environment:
+      ARANGO_HOST: arangodb
+      ARANGO_PORT: "8529"
+      ARANGO_DATABASE: ix_memory
+      ARANGO_USER: root
+      ARANGO_PASSWORD: ""
+      PORT: "8090"
+    depends_on:
+      arangodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8090/v1/health"]
+      interval: 3s
+      timeout: 3s
+      start_period: 15s
+      retries: 40

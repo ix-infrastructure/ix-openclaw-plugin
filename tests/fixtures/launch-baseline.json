@@ -33,9 +33,9 @@
       "status": "implemented",
       "event": "before_tool_call",
       "trigger": "OpenClaw `edit`, `write`, and `apply_patch` calls on non-skipped paths",
-      "launch_behavior": "Runs `ix-decide` for the touched paths (every file of an `apply_patch`; relative paths resolved against the agent workspace). `BLOCK` returns `{ block: true, blockReason }`. `REVIEW` returns an OpenClaw approval request. `ALLOW` returns no intervention.",
+      "launch_behavior": "Runs `ix-decide` for the touched paths (every file of an `apply_patch`; relative paths resolved against the agent workspace). `REVIEW` returns an OpenClaw approval request (severity `critical`, title marked high risk, for what used to be a `BLOCK`). Nothing returns `{ block: true }`. `ALLOW` returns no intervention.",
       "failure_mode": "Skips markdown, text, lockfiles, common binary assets, and compiled artifacts. If no target path is found, it returns no intervention.",
-      "claude_delta": "Claude surfaces a warning-oriented pre-edit hook. OpenClaw launch baseline can hard-block or require explicit approval."
+      "claude_delta": "Claude surfaces a warning-oriented pre-edit hook. OpenClaw launch baseline requires explicit approval for risky edits; it never hard-blocks."
     },
     {
       "id": "post-edit-ingest",

@@ -182,10 +182,12 @@ type WriteToolEvent = {
 
 /**
  * The pre-edit gate: ask ix-decide about the files an `edit`, `write` or
- * `apply_patch` call is about to touch. BLOCK blocks the call, REVIEW asks the
- * user, ALLOW is silent (PluginHookBeforeToolCallResult,
- * hook-runner-global-y5_IazVW.d.ts:123-145). Relative paths are resolved
- * against the agent workspace, where the host resolves them too.
+ * `apply_patch` call is about to touch. REVIEW asks the user, ALLOW is silent
+ * (PluginHookBeforeToolCallResult, hook-runner-global-y5_IazVW.d.ts:123-145).
+ * Nothing is blocked outright: a high-risk change is a REVIEW whose prompt is
+ * marked critical, so the user decides with the reason in front of them.
+ * Relative paths are resolved against the agent workspace, where the host
+ * resolves them too.
  */
 async function handleBeforeToolCall(event: WriteToolEvent, workspaceDir?: string) {
   const toolName = event?.toolName;
@@ -203,23 +205,20 @@ async function handleBeforeToolCall(event: WriteToolEvent, workspaceDir?: string
   );
 
   const decision = parseDecisionVerdict(verdict);
-  if (decision === "BLOCK") {
-    return {
-      block: true,
-      blockReason: compactHookText(verdict),
-    };
-  }
 
   rememberWritePaths(event?.toolCallId, targetPaths);
 
   if (decision === "REVIEW") {
     const subject =
       targetPaths.length === 1 ? displayName(targetPaths[0]) : `${targetPaths.length} files`;
+    // ix-decide leads its reason with "High risk" for what used to be a BLOCK
+    // (a critical file, or past the high-risk dependent count).
+    const highRisk = /\*\*Reason:\*\*\s*High risk\b/.test(verdict);
     return {
       requireApproval: {
-        title: `Ix review required for ${subject}`,
+        title: highRisk ? `Ix review required for ${subject} (high risk)` : `Ix review required for ${subject}`,
         description: compactHookText(verdict),
-        severity: "warning" as const,
+        severity: highRisk ? ("critical" as const) : ("warning" as const),
         timeoutMs: 120000,
         allowedDecisions: ["allow-once" as const, "deny" as const],
       },
@@ -359,10 +358,10 @@ function shouldSkipPath(targetPath: string): boolean {
   return SKIP_EXT.test(targetPath) || SKIP_COMPILED.test(targetPath);
 }
 
-function parseDecisionVerdict(text: string): "ALLOW" | "REVIEW" | "BLOCK" | null {
-  const match = text.match(/\*\*Verdict:\*\*\s*(ALLOW|REVIEW|BLOCK)/i);
+function parseDecisionVerdict(text: string): "ALLOW" | "REVIEW" | null {
+  const match = text.match(/\*\*Verdict:\*\*\s*(ALLOW|REVIEW)/i);
   if (!match) return null;
-  return match[1].toUpperCase() as "ALLOW" | "REVIEW" | "BLOCK";
+  return match[1].toUpperCase() as "ALLOW" | "REVIEW";
 }
 
 function compactHookText(text: string): string {
