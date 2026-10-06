@@ -133,6 +133,15 @@ switch (command) {
     process.stdout.write(JSON.stringify(record) + "\\n");
     break;
   }
+  case "callers": {
+    // Canned rows from callers.json ({"<target>": [{name, kind, path}]}), in
+    // the real \`results\` shape; nothing canned answers with no callers.
+    let canned = {};
+    try { canned = JSON.parse(readFileSync(path.join(dir, "callers.json"), "utf8")); } catch {}
+    const target = rest.find((arg) => !arg.startsWith("-") && arg !== "json" && !/^\\d+$/.test(arg));
+    process.stdout.write(JSON.stringify({ results: canned[target] ?? [], resultSource: "graph" }) + "\\n");
+    break;
+  }
   case "briefing": {
     // @ix/pro declares text|json only. No briefing.txt means Pro is absent.
     const formatIndex = rest.indexOf("--format");
@@ -158,28 +167,35 @@ switch (command) {
  * prints (v0.12.0 and main, ix-cli/src/cli/commands/impact.ts containerImpact),
  * captured from a real run against a throwaway backend. A file resolves as a
  * container, so its counts are `summary.{members, directImporters,
- * directDependents, memberLevelCallers}`; the regions its dependents sit in
+ * directDependents, memberLevelCallers}`; a symbol (`kind` other than "file")
+ * resolves as a leaf and has `summary.{callers, callees}` instead; the regions its dependents sit in
  * are `propagationBuckets[].region`. There is no `risk`, `dependentCount`
  * or `subsystems` field.
  */
 export function impactRecord({
   riskLevel = "low",
+  kind = "file",
   name = "core.ts",
   members = 2,
   importers = 0,
   dependents = 0,
   memberCallers = 0,
+  callers = 0,
+  callees = 0,
   regions = [],
 } = {}) {
   const record = {
-    resolvedTarget: { kind: "file", name },
+    resolvedTarget: { kind, name },
     depth: 1,
     systemPath: [{ name: "Core", kind: "region" }],
     riskSummary: riskLevel === "low" ? "Low risk — localized impact with limited propagation." : "High risk — widely shared dependency affecting the core layer.",
     riskLevel,
     riskCategory: riskLevel === "low" ? "localized" : "shared",
     atRiskBehavior: ["Limited to immediate callers"],
-    summary: { members, directImporters: importers, directDependents: dependents, memberLevelCallers: memberCallers },
+    // A symbol (leaf) target carries only its caller/callee counts (leafImpact).
+    summary: kind === "file"
+      ? { members, directImporters: importers, directDependents: dependents, memberLevelCallers: memberCallers }
+      : { callers, callees },
   };
   if (regions.length > 0) {
     record.propagationBuckets = regions.map((region) => ({ region, regionKind: "region", count: 1, members: [{ name: "user.ts", kind: "file" }] }));
@@ -221,6 +237,13 @@ export function installFakeIx() {
      */
     setImpact(responses) {
       writeFileSync(path.join(dir, "impact.json"), JSON.stringify(responses));
+    },
+    /**
+     * Answer `ix callers <target>` with `responses[target]`, an array of rows
+     * in the real `results[]` shape ({name, kind, path}).
+     */
+    setCallers(responses) {
+      writeFileSync(path.join(dir, "callers.json"), JSON.stringify(responses));
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
