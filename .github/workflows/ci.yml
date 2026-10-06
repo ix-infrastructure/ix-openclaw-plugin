@@ -81,6 +81,10 @@ jobs:
   # well-formed "unavailable" message. Any argv the real CLI rejects ("unknown
   # option") fails it, so a tool flag missing from the pinned release turns this
   # red. Bump IX_VERSION deliberately, alongside any argv change it needs.
+  # A last step then starts a throwaway backend (tests/real-ix/compose.yml,
+  # pinned images, no volumes) and has ix-decide read real `ix impact` answers
+  # from a small mapped project: with the backend down, no test ever saw one,
+  # which is how ix-decide went on reading fields the CLI does not print.
   real-ix:
     name: Real ix (released CLI)
     runs-on: ubuntu-latest
@@ -133,6 +137,20 @@ jobs:
         env:
           IX_EXPECTED_VERSION: ${{ env.IX_VERSION }}
         run: node --test tests/real-ix/*.test.mjs
+      - name: Start a throwaway Ix backend
+        env:
+          IX_LIVE_PORT: "8611"
+        run: docker compose -p ix-oc-live -f tests/real-ix/compose.yml up -d --wait
+      - name: ix-decide against the real ix and a live backend
+        env:
+          IX_LIVE_ENDPOINT: "http://127.0.0.1:8611"
+        run: node --test tests/real-ix/live/*.test.mjs
+      - name: Backend logs (on failure)
+        if: failure()
+        run: docker compose -p ix-oc-live -f tests/real-ix/compose.yml logs --tail 200
+      - name: Stop the throwaway backend
+        if: always()
+        run: docker compose -p ix-oc-live -f tests/real-ix/compose.yml down -v
 
   # ── Aggregate gate ───────────────────────────────────────────────────────
   # One stable required-status-check context. Fails if any upstream job failed

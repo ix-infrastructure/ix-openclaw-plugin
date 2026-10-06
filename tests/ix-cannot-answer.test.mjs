@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { installFakeIx } from "./fake-ix.mjs";
+import { impactRecord, installFakeIx } from "./fake-ix.mjs";
 import * as ixDecide from "../dist/tools/ix-decide.js";
 import * as ixDocsTool from "../dist/tools/ix-docs-tool.js";
 
@@ -100,7 +100,7 @@ test("ix-decide does not call a miss on an empty graph a new file", withFake(asy
 }));
 
 test("ix-decide still reviews a measured risky file beside an unassessed or new one", withFake(async (ix) => {
-  ix.setImpact({ "src/hub.ts": { risk: "medium", dependentCount: 6 }, "src/b.ts": "FAIL", "src/new.ts": NOT_IN_GRAPH });
+  ix.setImpact({ "src/hub.ts": impactRecord({ riskLevel: "medium", importers: 2, memberCallers: 6 }), "src/b.ts": "FAIL", "src/new.ts": NOT_IN_GRAPH });
   const out = await decide(["src/hub.ts", "src/b.ts", "src/new.ts"]);
   assert.match(out, /Verdict:\*\* REVIEW/);
   assert.match(out, /`src\/hub\.ts` — MEDIUM, 6 dependents/);
@@ -109,7 +109,7 @@ test("ix-decide still reviews a measured risky file beside an unassessed or new 
 }));
 
 test("ix-decide allows a measured low-risk file and names an unassessed one beside it", withFake(async (ix) => {
-  ix.setImpact({ "src/a.ts": { risk: "low", dependentCount: 1 }, "src/b.ts": "FAIL" });
+  ix.setImpact({ "src/a.ts": impactRecord({ riskLevel: "low", importers: 1, memberCallers: 1 }), "src/b.ts": "FAIL" });
   const one = await decide(["src/a.ts"]);
   assert.match(one, /Verdict:\*\* ALLOW/);
   assert.match(one, /Safe to proceed\. Verify affected callers/);
@@ -122,7 +122,7 @@ test("ix-decide allows a measured low-risk file and names an unassessed one besi
 test("ix-decide measures every path, not just the first five", withFake(async (ix) => {
   const files = Array.from({ length: 9 }, (_, i) => `src/f${i}.ts`);
   // Only the eighth file is risky; it used to go unmeasured and unreported.
-  ix.setImpact({ "src/f7.ts": { risk: "high", dependentCount: 3 } });
+  ix.setImpact({ "src/f7.ts": impactRecord({ riskLevel: "high", importers: 3, memberCallers: 2 }) });
   const out = await decide(files);
   assert.match(out, /Verdict:\*\* REVIEW/);
   assert.match(out, /`src\/f7\.ts` — HIGH, 3 dependents/);

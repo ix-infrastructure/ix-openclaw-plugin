@@ -32,7 +32,7 @@ If `$ARGUMENTS` is empty, return this menu:
 - `ix-smells` — architecture smell detection
 - `ix-map` — architectural overview with subsystem table
 - `ix-ingest` — graph status and refresh trigger
-- `ix-decide` — pre-edit policy verdict (ALLOW / REVIEW / BLOCK)
+- `ix-decide` — pre-edit policy verdict (ALLOW / REVIEW; a high-risk change is a REVIEW flagged high risk, never a hard block)
 - `ix-health` — CLI and graph availability check
 
 If `$ARGUMENTS` is non-empty, classify the request and recommend exactly one best starting point:

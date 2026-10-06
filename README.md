@@ -122,7 +122,7 @@ plugin ships no folder hooks.
 | Event | Tools | Effect |
 |-------|-------|--------|
 | `before_prompt_build` | — | Prepends the session briefing (goals, bugs, decisions) once per 10 min per workspace, as text capped at 2,000 characters — **requires Ix Pro** and `allowConversationAccess` (see Configuration) |
-| `before_tool_call` | `edit`, `write`, `apply_patch` | Runs `ix-decide` on the files being written: `BLOCK` blocks the call, `REVIEW` asks you to approve it, `ALLOW` is silent. Only a risky answer from Ix blocks or asks: a new file, or an edit Ix cannot assess (not installed, backend down, project not mapped), is `ALLOW` |
+| `before_tool_call` | `edit`, `write`, `apply_patch` | Runs `ix-decide` on the files being written (risk and dependent counts from `ix impact`): `REVIEW` asks you to approve the call (allow once or deny), `ALLOW` is silent. Nothing is blocked outright. A file Ix rates medium or high risk, or with 5+ dependents, gets a `REVIEW`; a critical file or one with 20+ dependents gets a `REVIEW` marked **high risk** (critical severity, reason shown). Only a risky answer from Ix asks: a low-risk file, a new file, or an edit Ix cannot assess (not installed, backend down, project not mapped), is `ALLOW` |
 | `after_tool_call` | `edit`, `write`, `apply_patch` | Requests the guarded root map (below) |
 | `session_end` | — | Requests the guarded root map for the agent workspace |
 
