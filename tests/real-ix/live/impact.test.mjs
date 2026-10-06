@@ -1,7 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 /**
- * ix-decide against a RELEASED `ix` and a LIVE throwaway backend.
+ * ix-decide and ix-impact against a RELEASED `ix` and a LIVE throwaway backend.
  *
  * tests/real-ix/tools.test.mjs runs with the backend unreachable, so it proves
  * the tools degrade well but never sees a real impact answer. That is how
@@ -30,6 +30,7 @@ import path from "node:path";
 import test from "node:test";
 
 import * as ixDecide from "../../../dist/tools/ix-decide.js";
+import * as ixImpact from "../../../dist/tools/ix-impact.js";
 
 const endpoint = process.env.IX_LIVE_ENDPOINT;
 
@@ -119,4 +120,28 @@ test("ix-decide allows a file not written yet as new, against the real graph", a
   const out = await decide("fresh.ts");
   assert.match(out, /\*\*Verdict:\*\* ALLOW/, out);
   assert.match(out, /New \(not in the graph yet\)/, out);
+});
+
+function impactOf(file) {
+  return ixImpact.execute({ target: path.join(workspace, "src", file) }, { directory: workspace });
+}
+
+function blastRadius(output) {
+  const match = output.match(/- Direct dependents: (\d+)/);
+  assert.ok(match, `no dependent count in:\n${output}`);
+  return Number(match[1]);
+}
+
+test("ix-impact reads a real impact answer: an imported file has a risk and its dependents", async () => {
+  const out = await impactOf("core.ts");
+  assert.ok(blastRadius(out) >= 6, `core.ts has six importers:\n${out}`);
+  assert.match(out, /\*\*Risk level:\*\* (LOW|MEDIUM|HIGH|CRITICAL)\n/, out);
+  assert.doesNotMatch(out, /ix unavailable|could not answer/, out);
+});
+
+test("ix-impact calls a real file nothing depends on low risk and safe", async () => {
+  const out = await impactOf("leaf.ts");
+  assert.match(out, /\*\*Risk level:\*\* LOW/, out);
+  assert.match(out, /\*\*Verdict:\*\* SAFE TO PROCEED/, out);
+  assert.equal(blastRadius(out), 0, out);
 });

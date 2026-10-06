@@ -1,6 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { IxCommandError, ixUnavailableMessage, runIx, stripAnsi, ToolContext, toolDirectory } from "./base.ts";
+import { ImpactRecord, readImpact } from "./impact-record.ts";
 
 export const name = "ix-docs-tool";
 export const description =
@@ -137,11 +138,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   if (depth === "full") {
     const impactOut = await safeRun(["impact", params.target, "--format", "json"], dir);
-    if (impactOut) {
+    // An error record ({"error": ...}) is a reason, not an impact reading.
+    if (impactOut && !errorRecord(impactOut)) {
       try {
-        const impact = JSON.parse(impactOut) as any;
+        const { level, dependents, regions } = readImpact(JSON.parse(impactOut) as ImpactRecord);
         sections.push(
-          `**Change risk:** ${(impact.risk ?? "unknown").toUpperCase()} (${impact.dependentCount ?? 0} direct dependents)`,
+          `**Change risk:** ${level.toUpperCase()} (${dependents} dependents)`,
+          ...(regions.length > 0 ? [`**Subsystems affected:** ${regions.join(", ")}`] : []),
           ""
         );
       } catch {

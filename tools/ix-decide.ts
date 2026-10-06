@@ -1,6 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { IxCommandError, parseIxJson, runIx, stripAnsi, ToolContext, toolDirectory } from "./base.ts";
+import { ImpactRecord, readImpact } from "./impact-record.ts";
 
 export const name = "ix-decide";
 export const description =
@@ -36,27 +37,6 @@ interface Params {
   risk_tolerance?: "low" | "medium" | "high";
 }
 
-/**
- * The fields of `ix impact <file> --format json` that the verdict reads, as
- * the released CLI prints them (ix-cli/src/cli/commands/impact.ts, the same
- * from v0.12.0 to main). A file resolves as a container, so its `summary`
- * carries the container counts; a symbol target would carry the leaf counts
- * (`callers`/`callees`) instead, accepted here so a non-file path still reads.
- * No released ix ever printed the `risk`/`dependentCount`/`subsystems` this
- * tool used to read, so there is no older shape to fall back to.
- */
-interface ImpactResult {
-  riskLevel?: string;
-  summary?: {
-    members?: number;
-    directImporters?: number;
-    directDependents?: number;
-    memberLevelCallers?: number;
-    callers?: number;
-  };
-  propagationBuckets?: Array<{ region?: string; count?: number }>;
-}
-
 /** The parts of one impact record the verdict uses. */
 interface Reading {
   risk: string;
@@ -64,33 +44,12 @@ interface Reading {
   regions: string[];
 }
 
-const RISK_LEVELS = new Set(["low", "medium", "high", "critical"]);
-
-function readImpact(result: ImpactResult): Reading {
-  const level = typeof result.riskLevel === "string" ? result.riskLevel.toLowerCase() : "";
+function readVerdictImpact(result: ImpactRecord): Reading {
+  const { level, dependents, regions } = readImpact(result);
   // ix withholds the level as "unknown" only on a degraded graph, which assess()
   // already sorts out as unassessed; anything else unrecognised reads as low,
-  // and the dependent count below can still raise the verdict.
-  const risk = RISK_LEVELS.has(level) ? level : "low";
-
-  const summary = result.summary ?? {};
-  const count = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
-  // Importers and direct dependents are disjoint edge sets into the file node
-  // (IMPORTS vs CALLS/REFERENCES), so they add. Member-level callers are the
-  // callers of the file's functions and classes: mostly the same code as the
-  // importers, seen a level down (six files importing two functions they each
-  // call give 6 importers and 12 member callers). Adding them would count each
-  // dependent twice, so the larger of the two views is taken instead.
-  const fileLevel = count(summary.directImporters) + count(summary.directDependents);
-  const dependents = Math.max(fileLevel, count(summary.memberLevelCallers), count(summary.callers));
-
-  // ix has no "subsystems" field: the regions its dependents fall in are the
-  // propagation buckets, so those are the subsystems a change reaches.
-  const regions = (result.propagationBuckets ?? [])
-    .map((bucket) => bucket?.region)
-    .filter((region): region is string => typeof region === "string" && region.length > 0);
-
-  return { risk, dependents, regions };
+  // and the dependent count can still raise the verdict.
+  return { risk: level === "unknown" ? "low" : level, dependents, regions };
 }
 
 /**
@@ -105,7 +64,7 @@ function readImpact(result: ImpactResult): Reading {
  *   the file, so it neither raises nor lowers the verdict; the output says so.
  */
 type Assessment =
-  | { kind: "measured"; path: string; result: ImpactResult }
+  | { kind: "measured"; path: string; result: ImpactRecord }
   | { kind: "new"; path: string }
   | { kind: "unassessed"; path: string; reason: string };
 
@@ -143,7 +102,7 @@ async function formatImpactVerdict(
   const readings = new Map<string, Reading>();
 
   for (const { path, result } of measured) {
-    const reading = readImpact(result);
+    const reading = readVerdictImpact(result);
     readings.set(path, reading);
     const risk = reading.risk;
     if (risk === "critical" || (risk === "high" && maxRisk !== "critical")) {
@@ -290,7 +249,7 @@ async function assess(filePath: string, dir: string): Promise<Assessment> {
   }
 
   if (graph) return { kind: "unassessed", path: filePath, reason: graph };
-  return { kind: "measured", path: filePath, result: fields as ImpactResult };
+  return { kind: "measured", path: filePath, result: fields as ImpactRecord };
 }
 
 function graphProblem(graph: unknown): string | null {
