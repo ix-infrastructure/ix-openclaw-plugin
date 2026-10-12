@@ -1,7 +1,8 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
-import { tryLlm } from "../runtime/llm.ts";
+import { ixUnavailableMessage, parseIxJson, runIxWithStderr, ToolContext, toolDirectory } from "./base.ts";
+import { tryLlmRun } from "../runtime/llm.ts";
+import { mapStaleFromJson, mapStaleFromLlm, mapStaleNote } from "../runtime/map-stale.ts";
 
 export const name = "ix-subsystems";
 export const description =
@@ -19,12 +20,22 @@ export async function execute(
 ): Promise<string> {
   const dir = toolDirectory(context);
 
-  const fast = await tryLlm(["subsystems"], dir);
-  if (fast) return `## ix-subsystems\n\n${fast}`;
+  const fast = await tryLlmRun(["subsystems"], dir);
+  if (fast) {
+    // A map deferred after an edit (Ix#841): the regions are the last map's.
+    const stale = mapStaleFromLlm(fast.text, fast.stderr);
+    return stale
+      ? `## ix-subsystems\n\n${mapStaleNote(stale)}\n\n${fast.text}`
+      : `## ix-subsystems\n\n${fast.text}`;
+  }
 
   let raw: any;
+  let stderr = "";
   try {
-    raw = await runIxJson<any>(["subsystems", "--format", "json"], { cwd: dir });
+    // `runIxJson`, keeping stderr for the stale-map line (Ix#841).
+    const run = await runIxWithStderr(["subsystems", "--format", "json"], { cwd: dir });
+    stderr = run.stderr;
+    raw = parseIxJson<any>(run.stdout);
   } catch (error) {
     return ixUnavailableMessage(
       "ix-subsystems",
@@ -42,10 +53,15 @@ export async function execute(
     "## ix-subsystems",
     "",
     `**${regions.length} subsystem${regions.length === 1 ? "" : "s"}** — ${raw.file_count ?? "?"} files, ${raw.levels ?? "?"} level${raw.levels === 1 ? "" : "s"}`,
+  ];
+  // A map deferred after an edit (Ix#841): the counts are the last map's.
+  const stale = mapStaleFromJson(raw, stderr);
+  if (stale) lines.push(mapStaleNote(stale));
+  lines.push(
     "",
     "| Subsystem | Kind | Level | Files | Children | Interfaces | Confidence |",
     "|-----------|------|-------|-------|----------|------------|------------|",
-  ];
+  );
 
   for (const region of regions) {
     lines.push(

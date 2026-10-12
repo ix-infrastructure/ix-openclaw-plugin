@@ -48,7 +48,7 @@
  * absent from the table below and must stay absent.
  */
 
-import { runIx } from "../tools/base.ts";
+import { runIx, runIxWithStderr } from "../tools/base.ts";
 import { redactSecrets } from "./secrets.ts";
 
 type SemVer = [number, number, number];
@@ -164,6 +164,17 @@ export async function tryLlm(
   args: readonly string[],
   cwd: string,
 ): Promise<string | null> {
+  return (await tryLlmRun(args, cwd))?.text ?? null;
+}
+
+/**
+ * `tryLlm`, keeping the run's stderr beside the text: a region view says on
+ * stderr when the map it answered from is stale (Ix#841).
+ */
+export async function tryLlmRun(
+  args: readonly string[],
+  cwd: string,
+): Promise<{ text: string; stderr: string } | null> {
   if (llmDisabled()) return null;
   if (!commandAllowsLlm(args)) return null;
 
@@ -171,9 +182,9 @@ export async function tryLlm(
   const version = await detectVersion(cwd);
   if (version === null || !gte(version, floor)) return null;
 
-  let out: string;
+  let out: { stdout: string; stderr: string };
   try {
-    out = await runIx([...args, "--format", "llm"], { cwd });
+    out = await runIxWithStderr([...args, "--format", "llm"], { cwd });
   } catch {
     return null;
   }
@@ -181,8 +192,8 @@ export async function tryLlm(
   // Scrubbed before it reaches the model. redactSecrets is idempotent and
   // order-free, so one pass over flat key=value lines cannot make the output
   // wrong.
-  const text = redactSecrets(out).trim();
+  const text = redactSecrets(out.stdout).trim();
   if (!text) return null;
   if (isLlmErrorLine(text)) return null;
-  return text;
+  return { text, stderr: out.stderr };
 }

@@ -21,6 +21,8 @@
  * shape; a canned record in the old `risk`/`dependentCount` shape, which no
  * released ix ever printed, fails loudly, so no test can pass on fields ix
  * never sends.
+ * `ix subsystems` answers from `subsystems.json` when a test set one
+ * (setSubsystems), and otherwise with `{}` as before.
  * `ix briefing` answers from `briefing.txt` (text|json only, like @ix/pro) and
  * fails as if Ix Pro were absent when no test set one.
  *
@@ -154,6 +156,19 @@ switch (command) {
     process.stdout.write(format === "json" ? JSON.stringify({ briefing }) + "\\n" : briefing);
     break;
   }
+  case "subsystems": {
+    // Canned from subsystems.json ({json, llm, stderr}); without it, the
+    // default answer below.
+    let canned = null;
+    try { canned = JSON.parse(readFileSync(path.join(dir, "subsystems.json"), "utf8")); } catch {}
+    if (canned === null) {
+      process.stdout.write("{}\\n");
+      break;
+    }
+    if (canned.stderr) process.stderr.write(canned.stderr + "\\n");
+    process.stdout.write(rest.includes("llm") ? canned.llm : JSON.stringify(canned.json) + "\\n");
+    break;
+  }
   case "--version":
     process.stdout.write("0.11.1\\n");
     break;
@@ -244,6 +259,13 @@ export function installFakeIx() {
      */
     setCallers(responses) {
       writeFileSync(path.join(dir, "callers.json"), JSON.stringify(responses));
+    },
+    /**
+     * Answer `ix subsystems`: `json` (an object) for --format json, `llm` (text)
+     * for --format llm, and `stderr` (a line) on stderr for either.
+     */
+    setSubsystems(answer) {
+      writeFileSync(path.join(dir, "subsystems.json"), JSON.stringify(answer));
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
