@@ -10,6 +10,9 @@
  *   ix map <non-directory>   -> exit 1, "Map path is not a directory"
  *   ix locate ... --limit    -> exit 1, "unknown option '--limit'"
  *   ix smells ... --path     -> exit 1, "unknown option '--path'"
+ *   ix smells ... --limit    -> exit 1, "unknown option '--limit'", as every
+ *                               released ix does; acceptSmellsLimit() makes it
+ *                               behave like an ix with Ix#828 instead
  *   ix bugs | ix connect     -> exit 1, "unknown command"
  *
  * Every invocation is appended to `calls.log` as one JSON line
@@ -93,10 +96,37 @@ switch (command) {
     if (has("--limit")) fail("error: unknown option '--limit'");
     process.stdout.write(JSON.stringify({ resolvedTarget: null }) + "\\n");
     break;
-  case "smells":
+  case "smells": {
     if (has("--path")) fail("error: unknown option '--path'");
-    process.stdout.write(rest.includes("llm") ? "smells none\\n" : JSON.stringify({ candidates: [], count: 0 }) + "\\n");
+    let limitOk = false;
+    try { statSync(path.join(dir, "smells-limit")); limitOk = true; } catch {}
+    if (has("--limit") && !limitOk) fail("error: unknown option '--limit'");
+    // Canned candidates from smells.json (setSmells), in the real \`--format
+    // json\` shape; without them, no smells.
+    let candidates = null;
+    try { candidates = JSON.parse(readFileSync(path.join(dir, "smells.json"), "utf8")); } catch {}
+    if (candidates === null) {
+      process.stdout.write(rest.includes("llm") ? "smells none\\n" : JSON.stringify({ candidates: [], count: 0 }) + "\\n");
+      break;
+    }
+    if (!rest.includes("llm")) {
+      // Plain JSON is uncapped, on every version.
+      process.stdout.write(JSON.stringify({ rev: 1, count: candidates.length, inference_version: "smell_v1", candidates }) + "\\n");
+      break;
+    }
+    // llm: highest confidence first, cut at --limit (Ix#828: default 50).
+    const limitIndex = rest.indexOf("--limit");
+    const limit = limitIndex >= 0 ? Number(rest[limitIndex + 1]) || Infinity : 50;
+    const sorted = [...candidates].sort((a, b) => b.confidence - a.confidence);
+    const shown = sorted.slice(0, limit);
+    const lines = ["smells rev=1 count=" + sorted.length + " shown=" + shown.length + " version=smell_v1"];
+    if (shown.length < sorted.length) {
+      lines.push('diagnostic code=results_truncated message="' + sorted.length + " smell candidates; showing " + shown.length + '. Raise --limit to see the rest."');
+    }
+    for (const c of shown) lines.push("smell kind=" + c.smell + " file=" + c.file + " confidence=" + c.confidence);
+    process.stdout.write(lines.join("\\n") + "\\n");
     break;
+  }
   case "status": {
     const rootIndex = rest.indexOf("--root");
     const root = rootIndex >= 0 ? rest[rootIndex + 1] : process.cwd();
@@ -248,6 +278,14 @@ export function installFakeIx() {
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
       writeFileSync(path.join(dir, "briefing.txt"), text);
+    },
+    /** Answer `ix smells` with these candidates ({file, smell, confidence, signals}). */
+    setSmells(candidates) {
+      writeFileSync(path.join(dir, "smells.json"), JSON.stringify(candidates));
+    },
+    /** Accept `ix smells --limit`, as an ix with Ix#828 does. */
+    acceptSmellsLimit() {
+      writeFileSync(path.join(dir, "smells-limit"), "");
     },
     /** Make graph reads fail with ix's workspace_not_mapped record. */
     setUnmapped() {
