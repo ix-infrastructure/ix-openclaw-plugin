@@ -26,7 +26,14 @@ interface Params {
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   // `ix smells` has no path filter; it always reports on the whole graph.
-  const fast = await tryLlm(["smells"], dir);
+  const requested = requestedLimit(params.limit);
+  // Forwarded only when the caller set one, so a call without `limit` sends
+  // exactly what it always did. Only the llm fast path gets it: an ix without
+  // `--limit` (before Ix#828) rejects the flag, tryLlm returns null, and the
+  // JSON path below answers instead. That path never sends it -- plain
+  // `--format json` is uncapped on every version -- and cuts client-side.
+  const limitArgs = requested === undefined ? [] : ["--limit", String(requested)];
+  const fast = await tryLlm(["smells", ...limitArgs], dir);
   if (fast) return `## ix-smells\n\n${fast}`;
 
   const args = ["smells", "--format", "json"];
@@ -44,7 +51,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   const allCandidates = raw.candidates ?? [];
   const total = raw.count ?? allCandidates.length;
-  const candidates = allCandidates.slice(0, Math.min(params.limit ?? 50, 200));
+  // Highest confidence first, as ix itself ranks them, so the cut keeps the strongest.
+  const candidates = [...allCandidates]
+    .sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0))
+    .slice(0, requested ?? 50);
 
   if (candidates.length === 0) {
     return `## ix-smells\n\nNo code smells detected. Architecture looks clean.`;
@@ -82,6 +92,12 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
   if (raw.run_at) lines.push(`_Analysis run at: ${raw.run_at}_`);
   return lines.join("\n");
+}
+
+/** The caller's `limit` as a whole number in 1..200, or undefined if none was usable. */
+function requestedLimit(raw: unknown): number | undefined {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 1) return undefined;
+  return Math.min(Math.floor(raw), 200);
 }
 
 function getErrorMessage(error: unknown): string {
