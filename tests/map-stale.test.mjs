@@ -4,9 +4,10 @@
 // map and serves the last map's regions until a region view refreshes it. It
 // says so with `map_stale` / `regions_as_of` (json), `map_stale=true
 // regions_as_of_rev=N regions_as_of_files=F` on the llm `map` record, and one
-// stderr line from a region view that could not refresh. ix-subsystems labels
-// its counts then; with the fields absent (older Ix) or fresh, its output is
-// exactly what it was.
+// stderr line from a region view (which answers from the last map and starts a
+// background refresh), plus a `diagnostic code=map_stale` llm record.
+// ix-subsystems labels its counts then; with the fields absent (older Ix) or
+// fresh, its output is exactly what it was.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -96,12 +97,28 @@ test("mapStale helpers: absent or fresh is null, stale names the map when Ix did
   assert.equal(mapStaleNote({ reason: "another ix map is running" }), NOTE_PLAIN);
 });
 
-test("mapStale helpers: a debounced or failed refresh points to ix map --remap, not a re-run", () => {
+test("mapStale helpers: a refresh under way says re-run shortly", () => {
+  for (const why of ["refreshing in background", "another ix map is running"]) {
+    const stale = mapStaleFromJson(SUBSYSTEMS, `${staleLine(why)}\n`);
+    assert.deepEqual(stale, { rev: undefined, files: undefined, reason: why });
+    assert.equal(mapStaleNote(stale), NOTE_PLAIN);
+    assert.equal(mapStaleNote(mapStaleFromLlm(LLM, `\u001b[2m${staleLine(why)}\u001b[22m\n`)), NOTE_PLAIN);
+    assert.equal(mapStaleNote({ rev: 7, files: 36, reason: why }), NOTE_NAMED);
+  }
+});
+
+test("mapStale helpers: a debounced, failed, unstartable or disabled refresh points to ix map --remap, not a re-run", () => {
   for (const why of [
-    "a refresh was tried moments ago",
+    "its last background refresh failed",
+    "its refresh could not start",
     "its refresh failed",
+    "a refresh was tried moments ago",
+    "background refresh is off",
+    // Older #841 builds; still harmless.
     "its refresh did not complete",
     "files changed while it was refreshed",
+    // A reason this plugin does not know yet: the same as today.
+    "some future reason",
   ]) {
     const stale = mapStaleFromJson(SUBSYSTEMS, `${staleLine(why)}\n`);
     assert.deepEqual(stale, { rev: undefined, files: undefined, reason: why });
@@ -134,4 +151,31 @@ test("ix-subsystems llm: unchanged when fresh, labelled when stale", async () =>
   assert.equal(await run({ llm: LLM }, { llm: true }), `## ix-subsystems\n\n${LLM.trim()}`);
   assert.equal(await run({ llm: LLM_STALE }, { llm: true }), `## ix-subsystems\n\n${NOTE_NAMED}\n\n${LLM_STALE.trim()}`);
   assert.equal(await run({ llm: LLM, stderr: STDERR_LINE }, { llm: true }), `## ix-subsystems\n\n${NOTE_PLAIN}\n\n${LLM.trim()}`);
+});
+
+const DIAGNOSTIC =
+  'diagnostic code=map_stale message="Stale map: not recomputed after this edit. Every count and region here is from the last map (map rev 7, 36 files). Run ix map --remap to recompute it now; region views refresh it in the background."';
+
+test("mapStale helpers: a diagnostic code=map_stale record counts as the map record's flag", () => {
+  const withDiag = LLM_STALE.replace(/^(map [^\n]*)/, `$1\n${DIAGNOSTIC}`);
+  assert.deepEqual(mapStaleFromLlm(withDiag), { rev: 7, files: 36 });
+  assert.deepEqual(mapStaleFromLlm(LLM.replace(/^(map [^\n]*)/, `$1\n${DIAGNOSTIC}`)), { rev: undefined, files: undefined });
+  assert.equal(mapStaleFromLlm(LLM.replace(/^(map [^\n]*)/, '$1\ndiagnostic code=other message="map_stale"')), null);
+});
+
+test("ix-subsystems llm: a diagnostic code=map_stale record is kept and parsed without breaking", async () => {
+  const withDiag = LLM_STALE.replace(/^(map [^\n]*)/, `$1\n${DIAGNOSTIC}`);
+  const out = await run({ llm: withDiag, stderr: staleLine("refreshing in background") }, { llm: true });
+  assert.equal(out, `## ix-subsystems\n\n${NOTE_NAMED}\n\n${withDiag.trim()}`);
+});
+
+test("ix-subsystems: each stderr reason picks its note", async () => {
+  for (const why of ["refreshing in background", "another ix map is running"]) {
+    assert.equal(await run({ llm: LLM, stderr: staleLine(why) }, { llm: true }), `## ix-subsystems\n\n${NOTE_PLAIN}\n\n${LLM.trim()}`);
+    assert.equal(await run({ json: SUBSYSTEMS, stderr: staleLine(why) }), UNCHANGED.replace("2 levels\n", `2 levels\n${NOTE_PLAIN}\n`));
+  }
+  for (const why of ["its last background refresh failed", "its refresh could not start", "background refresh is off"]) {
+    assert.equal(await run({ llm: LLM, stderr: staleLine(why) }, { llm: true }), `## ix-subsystems\n\n${NOTE_REMAP_PLAIN}\n\n${LLM.trim()}`);
+    assert.equal(await run({ json: SUBSYSTEMS, stderr: staleLine(why) }), UNCHANGED.replace("2 levels\n", `2 levels\n${NOTE_REMAP_PLAIN}\n`));
+  }
 });
