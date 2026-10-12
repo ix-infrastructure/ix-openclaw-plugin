@@ -39,6 +39,13 @@ const STDERR_LINE =
   "ix: architecture map is stale (another ix map is running); regions shown may predate recent edits. Run ix map --remap to refresh.";
 const NOTE_NAMED = "_Stale map: regions as of map rev 7, 36 files; the map is refreshing — re-run after it completes._";
 const NOTE_PLAIN = "_Stale map: regions are from the previous map; the map is refreshing — re-run after it completes._";
+// The stderr line for a refresh that was debounced or failed (Ix#841 `ensureFreshMap`).
+const staleLine = (why) =>
+  `ix: architecture map is stale (${why}); regions shown may predate recent edits. Run ix map --remap to refresh.`;
+const NOTE_REMAP_NAMED =
+  "_Stale map: regions as of map rev 7, 36 files; not recomputed since recent edits — run `ix map --remap` to refresh._";
+const NOTE_REMAP_PLAIN =
+  "_Stale map: regions are from the previous map; not recomputed since recent edits — run `ix map --remap` to refresh._";
 
 // The JSON-path output as it was before Ix#841.
 const UNCHANGED = [
@@ -77,11 +84,31 @@ test("mapStale helpers: absent or fresh is null, stale names the map when Ix did
   assert.equal(mapStaleFromLlm(LLM), null);
   assert.deepEqual(mapStaleFromJson({ map_stale: true, regions_as_of: { map_rev: 7, file_count: 36 } }), { rev: 7, files: 36 });
   assert.deepEqual(mapStaleFromJson({ regions_as_of: { map_rev: 7, file_count: 36 } }), { rev: 7, files: 36 });
-  assert.deepEqual(mapStaleFromJson(SUBSYSTEMS, `\u001b[2m${STDERR_LINE}\u001b[22m\n`), { rev: undefined, files: undefined });
+  assert.deepEqual(mapStaleFromJson(SUBSYSTEMS, `\u001b[2m${STDERR_LINE}\u001b[22m\n`), {
+    rev: undefined,
+    files: undefined,
+    reason: "another ix map is running",
+  });
   assert.deepEqual(mapStaleFromLlm(LLM_STALE), { rev: 7, files: 36 });
-  assert.deepEqual(mapStaleFromLlm(LLM, STDERR_LINE), { rev: undefined, files: undefined });
+  assert.deepEqual(mapStaleFromLlm(LLM, STDERR_LINE), { rev: undefined, files: undefined, reason: "another ix map is running" });
   assert.equal(mapStaleNote({ rev: 7, files: 36 }), NOTE_NAMED);
   assert.equal(mapStaleNote({}), NOTE_PLAIN);
+  assert.equal(mapStaleNote({ reason: "another ix map is running" }), NOTE_PLAIN);
+});
+
+test("mapStale helpers: a debounced or failed refresh points to ix map --remap, not a re-run", () => {
+  for (const why of [
+    "a refresh was tried moments ago",
+    "its refresh failed",
+    "its refresh did not complete",
+    "files changed while it was refreshed",
+  ]) {
+    const stale = mapStaleFromJson(SUBSYSTEMS, `${staleLine(why)}\n`);
+    assert.deepEqual(stale, { rev: undefined, files: undefined, reason: why });
+    assert.equal(mapStaleNote(stale), NOTE_REMAP_PLAIN);
+    assert.equal(mapStaleNote(mapStaleFromLlm(LLM, `\u001b[2m${staleLine(why)}\u001b[22m\n`)), NOTE_REMAP_PLAIN);
+  }
+  assert.equal(mapStaleNote({ rev: 7, files: 36, reason: "its refresh failed" }), NOTE_REMAP_NAMED);
 });
 
 test("ix-subsystems json: absent and fresh fields leave the output byte-identical", async () => {
@@ -94,6 +121,13 @@ test("ix-subsystems json: a stale map labels the counts", async () => {
   assert.equal(stale, UNCHANGED.replace("2 levels\n", `2 levels\n${NOTE_NAMED}\n`));
   const viaStderr = await run({ json: SUBSYSTEMS, stderr: STDERR_LINE });
   assert.equal(viaStderr, UNCHANGED.replace("2 levels\n", `2 levels\n${NOTE_PLAIN}\n`));
+});
+
+test("ix-subsystems: a debounced or failed refresh points to ix map --remap", async () => {
+  const json = await run({ json: SUBSYSTEMS, stderr: staleLine("a refresh was tried moments ago") });
+  assert.equal(json, UNCHANGED.replace("2 levels\n", `2 levels\n${NOTE_REMAP_PLAIN}\n`));
+  const llm = await run({ llm: LLM_STALE, stderr: staleLine("its refresh failed") }, { llm: true });
+  assert.equal(llm, `## ix-subsystems\n\n${NOTE_REMAP_NAMED}\n\n${LLM_STALE.trim()}`);
 });
 
 test("ix-subsystems llm: unchanged when fresh, labelled when stale", async () => {
