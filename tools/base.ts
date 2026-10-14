@@ -37,7 +37,18 @@ export class IxCommandError extends Error {
   }
 }
 
-export function runIx(args: string[], options: RunIxOptions): Promise<string> {
+export async function runIx(args: string[], options: RunIxOptions): Promise<string> {
+  return (await runIxWithStderr(args, options)).stdout;
+}
+
+/**
+ * `runIx`, keeping stderr from a successful run: a region view says there when
+ * the map it answered from is stale (Ix#841). Rejects exactly as `runIx` does.
+ */
+export function runIxWithStderr(
+  args: string[],
+  options: RunIxOptions
+): Promise<{ stdout: string; stderr: string }> {
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return new Promise((resolve, reject) => {
@@ -48,7 +59,7 @@ export function runIx(args: string[], options: RunIxOptions): Promise<string> {
         return;
       }
 
-      resolve(stdout);
+      resolve({ stdout, stderr });
     });
   });
 }

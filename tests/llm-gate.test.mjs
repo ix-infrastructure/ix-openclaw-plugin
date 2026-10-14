@@ -133,7 +133,8 @@ for (const [file, header] of [
 ]) {
   test(`${file} keeps its header on the fast path`, () => {
     const source = readFileSync(path.join(projectRoot, "tools", file), "utf8");
-    const index = source.indexOf("tryLlm(");
+    // `tryLlmRun` is `tryLlm` keeping stderr (Ix#841's stale-map line).
+    const index = source.search(/tryLlm(?:Run)?\(/);
     assert.ok(index > -1, `${file} does not call tryLlm`);
     // Window is generous because some call sites carry a paragraph of comment
     // before the return.
@@ -145,7 +146,7 @@ test("no tool sends a Pro command down the fast path", () => {
   const dir = path.join(projectRoot, "tools");
   for (const file of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
     const source = readFileSync(path.join(dir, file), "utf8");
-    for (const match of source.matchAll(/tryLlm\(\s*\[\s*"([a-z-]+)"/g)) {
+    for (const match of source.matchAll(/tryLlm(?:Run)?\(\s*\[\s*"([a-z-]+)"/g)) {
       assert.notEqual(
         LLM_MIN_VERSION[match[1]],
         undefined,
