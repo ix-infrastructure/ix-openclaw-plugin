@@ -20,7 +20,16 @@ export async function execute(
   const dir = toolDirectory(context);
 
   const fast = await tryLlm(["subsystems"], dir);
-  if (fast) return `## ix-subsystems\n\n${fast}`;
+  if (fast) {
+    // A stale map arrives as a `diagnostic code=map_stale` record. It becomes
+    // the stale line under the heading instead of a second, raw copy in the
+    // body. A body that was nothing but that record falls through to JSON,
+    // as an empty llm answer would.
+    const { body, staleLine } = splitStaleDiagnostic(fast);
+    if (body) {
+      return staleLine ? `## ix-subsystems\n\n${staleLine}\n\n${body}` : `## ix-subsystems\n\n${body}`;
+    }
+  }
 
   let raw: any;
   try {
@@ -33,14 +42,18 @@ export async function execute(
     );
   }
 
+  // Ix sets map_stale only when the map lags recent edits; an older CLI
+  // never sends it, and then the output is exactly what it always was.
+  const heading = ["## ix-subsystems", ""];
+  if (raw?.map_stale === true) heading.push(staleMapLine(raw.regions_as_of), "");
+
   const regions = raw.regions ?? [];
   if (regions.length === 0) {
-    return ["## ix-subsystems", "", "**No subsystems found.** Run `ix map` to build the graph."].join("\n");
+    return [...heading, "**No subsystems found.** Run `ix map` to build the graph."].join("\n");
   }
 
   const lines = [
-    "## ix-subsystems",
-    "",
+    ...heading,
     `**${regions.length} subsystem${regions.length === 1 ? "" : "s"}** — ${raw.file_count ?? "?"} files, ${raw.levels ?? "?"} level${raw.levels === 1 ? "" : "s"}`,
     "",
     "| Subsystem | Kind | Level | Files | Children | Interfaces | Confidence |",
@@ -54,6 +67,46 @@ export async function execute(
   }
   if (raw.outcome) lines.push("", `_Outcome: ${raw.outcome}_`);
   return lines.join("\n");
+}
+
+/** The one line a stale architecture map adds under the heading. */
+function staleMapLine(regionsAsOf: unknown): string {
+  const asOf = formatAsOf(regionsAsOf);
+  return `_Map is stale${asOf ? ` (regions as of ${asOf})` : ""}; recent edits may not be reflected — a background refresh is running._`;
+}
+
+/** A timestamp as `YYYY-MM-DD HH:MM UTC`; text ix sent that is not one, as given. */
+function formatAsOf(value: unknown): string | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const date = new Date(typeof value === "number" ? value : text);
+  if (Number.isNaN(date.getTime())) return text.replace(/\s+/g, " ").slice(0, 80);
+  return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+const STALE_DIAGNOSTIC = /^diagnostic\s.*\bcode=map_stale(\s|$)/;
+const REGIONS_AS_OF = /\bregions_as_of=(?:"((?:[^"\\]|\\.)*)"|(\S+))/;
+
+/**
+ * Pull `diagnostic code=map_stale` records out of `ix subsystems --format llm`
+ * text. Returns the remaining records and, when there was one, the stale line.
+ */
+function splitStaleDiagnostic(text: string): { body: string; staleLine: string | null } {
+  let staleLine: string | null = null;
+  const kept: string[] = [];
+  for (const line of text.split("\n")) {
+    if (STALE_DIAGNOSTIC.test(line.trim())) {
+      if (staleLine === null) {
+        const match = line.match(REGIONS_AS_OF);
+        staleLine = staleMapLine(match ? (match[1] ?? match[2])?.replace(/\\(.)/g, "$1") : undefined);
+      }
+      continue;
+    }
+    kept.push(line);
+  }
+  if (staleLine === null) return { body: text, staleLine: null };
+  return { body: kept.join("\n").trim(), staleLine };
 }
 
 function getErrorMessage(error: unknown): string {

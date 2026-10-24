@@ -142,6 +142,17 @@ switch (command) {
     process.stdout.write(JSON.stringify({ results: canned[target] ?? [], resultSource: "graph" }) + "\\n");
     break;
   }
+  case "subsystems": {
+    // Canned answers from subsystems.llm / subsystems.json (setSubsystems()).
+    // No canned llm answer prints nothing, which tryLlm treats as "use the
+    // JSON path"; no canned JSON answers like any unknown command.
+    const formatIndex = rest.indexOf("--format");
+    const format = formatIndex >= 0 ? rest[formatIndex + 1] : "text";
+    let canned = null;
+    try { canned = readFileSync(path.join(dir, "subsystems." + format), "utf8"); } catch {}
+    process.stdout.write(canned ?? (format === "llm" ? "" : "{}\\n"));
+    break;
+  }
   case "briefing": {
     // @ix/pro declares text|json only. No briefing.txt means Pro is absent.
     const formatIndex = rest.indexOf("--format");
@@ -244,6 +255,14 @@ export function installFakeIx() {
      */
     setCallers(responses) {
       writeFileSync(path.join(dir, "callers.json"), JSON.stringify(responses));
+    },
+    /**
+     * Answer `ix subsystems --format llm` with `llm` and `--format json` with
+     * `json` (an object). Leave `llm` out to send the tool down its JSON path.
+     */
+    setSubsystems({ llm, json } = {}) {
+      if (llm !== undefined) writeFileSync(path.join(dir, "subsystems.llm"), llm);
+      if (json !== undefined) writeFileSync(path.join(dir, "subsystems.json"), JSON.stringify(json) + "\n");
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
