@@ -170,3 +170,44 @@ test("llm path: a stale diagnostic alone falls back to the JSON answer", withFak
     ["## ix-subsystems", "", STALE_LINE_AT, "", "**No subsystems found.** Run `ix map` to build the graph."].join("\n"),
   );
 }));
+
+// --- regions_as_of formats and record matching -----------------------------
+
+test("JSON path: epoch seconds and milliseconds both read as the same UTC time", withFake(async (ix) => {
+  for (const regions_as_of of [1792834200, 1792834200000, "1792834200"]) {
+    ix.setSubsystems({ json: { ...FRESH_JSON, map_stale: true, regions_as_of } });
+    const out = await ixSubsystems.execute({}, context());
+    assert.equal(out, withStaleLine(FRESH_JSON_OUTPUT, STALE_LINE_AT), `regions_as_of=${regions_as_of}`);
+  }
+}));
+
+test("JSON path: a date-time with no zone is shown as written, not labelled UTC", withFake(async (ix) => {
+  for (const regions_as_of of ["2026-10-24 09:30:00", "2026-10-24T09:30"]) {
+    ix.setSubsystems({ json: { ...FRESH_JSON, map_stale: true, regions_as_of } });
+    const out = await ixSubsystems.execute({}, context());
+    assert.equal(
+      out,
+      withStaleLine(FRESH_JSON_OUTPUT, STALE_LINE_AT.replace("09:30 UTC", "09:30")),
+      `regions_as_of=${regions_as_of}`,
+    );
+  }
+}));
+
+test("llm path: a quoted epoch regions_as_of is read as seconds", withFake(async (ix) => {
+  ix.setSubsystems({ llm: `diagnostic code=map_stale regions_as_of="1792834200"\n${LLM_RECORDS}\n` });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, `## ix-subsystems\n\n${STALE_LINE_AT}\n\n${LLM_RECORDS}`);
+}));
+
+test("llm path: code=map_stale inside another diagnostic's message is not a stale record", withFake(async (ix) => {
+  const other = 'diagnostic code=low_confidence message="see code=map_stale docs"';
+  ix.setSubsystems({ llm: `${other}\n${LLM_RECORDS}\n` });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, `## ix-subsystems\n\n${other}\n${LLM_RECORDS}`);
+}));
+
+test("llm path: a stale diagnostic alone keeps the stale line when the JSON omits map_stale", withFake(async (ix) => {
+  ix.setSubsystems({ llm: `${STALE_DIAGNOSTIC}\n`, json: FRESH_JSON });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, withStaleLine(FRESH_JSON_OUTPUT, STALE_LINE_AT));
+}));

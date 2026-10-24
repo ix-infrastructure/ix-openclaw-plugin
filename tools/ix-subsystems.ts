@@ -19,6 +19,9 @@ export async function execute(
 ): Promise<string> {
   const dir = toolDirectory(context);
 
+  // Kept for the JSON fallback: an llm answer that was only the stale
+  // record still says the map is stale, even if the JSON omits map_stale.
+  let llmStaleLine: string | null = null;
   const fast = await tryLlm(["subsystems"], dir);
   if (fast) {
     // A stale map arrives as a `diagnostic code=map_stale` record. It becomes
@@ -29,6 +32,7 @@ export async function execute(
     if (body) {
       return staleLine ? `## ix-subsystems\n\n${staleLine}\n\n${body}` : `## ix-subsystems\n\n${body}`;
     }
+    llmStaleLine = staleLine;
   }
 
   let raw: any;
@@ -45,7 +49,8 @@ export async function execute(
   // Ix sets map_stale only when the map lags recent edits; an older CLI
   // never sends it, and then the output is exactly what it always was.
   const heading = ["## ix-subsystems", ""];
-  if (raw?.map_stale === true) heading.push(staleMapLine(raw.regions_as_of), "");
+  const staleLine = raw?.map_stale === true ? staleMapLine(raw.regions_as_of) : llmStaleLine;
+  if (staleLine) heading.push(staleLine, "");
 
   const regions = raw.regions ?? [];
   if (regions.length === 0) {
@@ -75,17 +80,36 @@ function staleMapLine(regionsAsOf: unknown): string {
   return `_Map is stale${asOf ? ` (regions as of ${asOf})` : ""}; recent edits may not be reflected — a background refresh is running._`;
 }
 
-/** A timestamp as `YYYY-MM-DD HH:MM UTC`; text ix sent that is not one, as given. */
+/**
+ * A timestamp as `YYYY-MM-DD HH:MM UTC`; text ix sent that is not one, as given.
+ * Epoch numbers below 1e11 are seconds (1e11 s is the year 5138), larger ones
+ * milliseconds. A date-time with no zone is shown as written, without `UTC`,
+ * rather than being read in this host's local time zone.
+ */
 function formatAsOf(value: unknown): string | null {
   if (typeof value !== "string" && typeof value !== "number") return null;
   const text = String(value).trim();
   if (!text) return null;
-  const date = new Date(typeof value === "number" ? value : text);
+  if (typeof value === "number" || /^\d+(\.\d+)?$/.test(text)) {
+    const epoch = Number(text);
+    const date = new Date(epoch < 1e11 ? epoch * 1000 : epoch);
+    if (Number.isFinite(epoch) && !Number.isNaN(date.getTime())) return toUtcMinute(date);
+    return text.slice(0, 80);
+  }
+  const local = text.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(:\d{2}(\.\d+)?)?$/);
+  if (local) return `${local[1]} ${local[2]}`;
+  const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text.replace(/\s+/g, " ").slice(0, 80);
+  return toUtcMinute(date);
+}
+
+function toUtcMinute(date: Date): string {
   return `${date.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
-const STALE_DIAGNOSTIC = /^diagnostic\s.*\bcode=map_stale(\s|$)/;
+// `code=map_stale` must be one of the record's own fields: quoted values are
+// skipped whole, so a message that mentions `code=map_stale` does not match.
+const STALE_DIAGNOSTIC = /^diagnostic(?:\s+(?:[^\s="]+=(?:"(?:[^"\\]|\\.)*"|[^\s"]*)|[^\s="]+))*?\s+code=map_stale(\s|$)/;
 const REGIONS_AS_OF = /\bregions_as_of=(?:"((?:[^"\\]|\\.)*)"|(\S+))/;
 
 /**
