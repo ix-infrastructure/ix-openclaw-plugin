@@ -74,10 +74,25 @@ export async function execute(
   return lines.join("\n");
 }
 
-/** The one line a stale architecture map adds under the heading. */
+/**
+ * The one line a stale architecture map adds under the heading. It does not
+ * say a background refresh is under way: Ix also reports a stale map when
+ * background refresh is off (IX_MAP_BACKGROUND_REFRESH=0), failed or could
+ * not start. It carries the remedy Ix's own llm record gives, which this tool
+ * drops from the body.
+ */
 function staleMapLine(regionsAsOf: unknown): string {
-  const asOf = formatAsOf(regionsAsOf);
-  return `_Map is stale${asOf ? ` (regions as of ${asOf})` : ""}; recent edits may not be reflected — a background refresh is running._`;
+  const asOf = formatMapRev(regionsAsOf) ?? formatAsOf(regionsAsOf);
+  return `_Map is stale${asOf ? ` (regions as of ${asOf})` : ""}; recent edits may not be reflected — run \`ix map --remap\` to refresh it now._`;
+}
+
+/** Ix's `regions_as_of` (`{map_rev, file_count}`) as `map rev N, M files`. */
+function formatMapRev(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { map_rev: rev, file_count: files } = value as Record<string, unknown>;
+  if (typeof rev !== "number" || !Number.isFinite(rev)) return null;
+  if (typeof files !== "number" || !Number.isFinite(files)) return null;
+  return `map rev ${rev}, ${files} file${files === 1 ? "" : "s"}`;
 }
 
 /**
@@ -111,6 +126,8 @@ function toUtcMinute(date: Date): string {
 // skipped whole, so a message that mentions `code=map_stale` does not match.
 const STALE_DIAGNOSTIC = /^diagnostic(?:\s+(?:[^\s="]+=(?:"(?:[^"\\]|\\.)*"|[^\s"]*)|[^\s="]+))*?\s+code=map_stale(\s|$)/;
 const REGIONS_AS_OF = /\bregions_as_of=(?:"((?:[^"\\]|\\.)*)"|(\S+))/;
+// Ix's record names the last map only in its message: `(map rev N, M files)`.
+const MESSAGE_MAP_REV = /\(map rev (\d+), (\d+) files?\)/;
 
 /**
  * Pull `diagnostic code=map_stale` records out of `ix subsystems --format llm`
@@ -123,7 +140,14 @@ function splitStaleDiagnostic(text: string): { body: string; staleLine: string |
     if (STALE_DIAGNOSTIC.test(line.trim())) {
       if (staleLine === null) {
         const match = line.match(REGIONS_AS_OF);
-        staleLine = staleMapLine(match ? (match[1] ?? match[2])?.replace(/\\(.)/g, "$1") : undefined);
+        const rev = match ? null : line.match(MESSAGE_MAP_REV);
+        staleLine = staleMapLine(
+          match
+            ? (match[1] ?? match[2])?.replace(/\\(.)/g, "$1")
+            : rev
+              ? { map_rev: Number(rev[1]), file_count: Number(rev[2]) }
+              : undefined,
+        );
       }
       continue;
     }

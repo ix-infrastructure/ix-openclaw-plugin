@@ -7,8 +7,8 @@ import { installFakeIx } from "./fake-ix.mjs";
 import * as ixSubsystems from "../dist/tools/ix-subsystems.js";
 
 // Since Ix #841 the architecture map can lag recent edits: automatic maps
-// defer, and region readers answer from the last map while a refresh runs in
-// the background. `ix subsystems` says so with `map_stale: true` (+
+// defer, and region readers answer from the last map (refreshing it in the
+// background unless that is off, failed or could not start). `ix subsystems` says so with `map_stale: true` (+
 // `regions_as_of`) in JSON and a `diagnostic code=map_stale` record in llm.
 // ix-subsystems turns either into one line under its heading. An ix that
 // does not emit them (fresh map, or an older CLI) must give exactly the
@@ -49,9 +49,9 @@ const FRESH_JSON_OUTPUT = [
 ].join("\n");
 
 const STALE_LINE_AT =
-  "_Map is stale (regions as of 2026-10-24 09:30 UTC); recent edits may not be reflected — a background refresh is running._";
+  "_Map is stale (regions as of 2026-10-24 09:30 UTC); recent edits may not be reflected — run `ix map --remap` to refresh it now._";
 const STALE_LINE =
-  "_Map is stale; recent edits may not be reflected — a background refresh is running._";
+  "_Map is stale; recent edits may not be reflected — run `ix map --remap` to refresh it now._";
 
 const withStaleLine = (output, line) =>
   output.replace("## ix-subsystems\n\n", `## ix-subsystems\n\n${line}\n\n`);
@@ -62,7 +62,7 @@ const LLM_RECORDS = [
 ].join("\n");
 
 const STALE_DIAGNOSTIC =
-  'diagnostic code=map_stale regions_as_of="2026-10-24T09:30:00Z" message="Architecture map is stale; a background refresh is running."';
+  'diagnostic code=map_stale regions_as_of="2026-10-24T09:30:00Z" message="Stale map: not recomputed after this edit. Run ix map --remap to recompute it now."';
 
 // --- JSON path (no llm answer) ---------------------------------------------
 
@@ -210,4 +210,45 @@ test("llm path: a stale diagnostic alone keeps the stale line when the JSON omit
   ix.setSubsystems({ llm: `${STALE_DIAGNOSTIC}\n`, json: FRESH_JSON });
   const out = await ixSubsystems.execute({}, context());
   assert.equal(out, withStaleLine(FRESH_JSON_OUTPUT, STALE_LINE_AT));
+}));
+
+// --- Ix's own regions_as_of: {map_rev, file_count} --------------------------
+
+const STALE_LINE_REV =
+  "_Map is stale (regions as of map rev 7, 42 files); recent edits may not be reflected — run `ix map --remap` to refresh it now._";
+
+// Ix's map_stale record names the last map only in its message.
+const IX_STALE_RECORD =
+  'diagnostic code=map_stale message="Stale map: not recomputed after this edit. Every count and region here is from the last map (map rev 7, 42 files). Run ix map --remap to recompute it now; region views refresh it in the background."';
+
+test("JSON path: regions_as_of {map_rev, file_count} names the map", withFake(async (ix) => {
+  ix.setSubsystems({ json: { ...FRESH_JSON, map_stale: true, regions_as_of: { map_rev: 7, file_count: 42 } } });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, withStaleLine(FRESH_JSON_OUTPUT, STALE_LINE_REV));
+}));
+
+test("JSON path: a 1-file map says \"1 file\"", withFake(async (ix) => {
+  ix.setSubsystems({ json: { ...FRESH_JSON, map_stale: true, regions_as_of: { map_rev: 3, file_count: 1 } } });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, withStaleLine(FRESH_JSON_OUTPUT, STALE_LINE_REV.replace("map rev 7, 42 files", "map rev 3, 1 file")));
+}));
+
+test("llm path: the map named in Ix's record message is read, first record wins", withFake(async (ix) => {
+  const second = 'diagnostic code=map_stale message="Stale map (map rev 9, 50 files)."';
+  ix.setSubsystems({ llm: `${LLM_RECORDS.split("\n")[0]}\n${IX_STALE_RECORD}\n${second}\n${LLM_RECORDS.split("\n")[1]}\n` });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, `## ix-subsystems\n\n${STALE_LINE_REV}\n\n${LLM_RECORDS}`);
+  assert.doesNotMatch(out, /code=map_stale/);
+}));
+
+test("llm path: a 1-file map in the record message says \"1 file\"", withFake(async (ix) => {
+  ix.setSubsystems({ llm: `diagnostic code=map_stale message="Stale map (map rev 3, 1 file)."\n${LLM_RECORDS}\n` });
+  const out = await ixSubsystems.execute({}, context());
+  assert.equal(out, `## ix-subsystems\n\n${STALE_LINE_REV.replace("map rev 7, 42 files", "map rev 3, 1 file")}\n\n${LLM_RECORDS}`);
+}));
+
+test("the stale line does not promise a background refresh", withFake(async (ix) => {
+  ix.setSubsystems({ json: { ...FRESH_JSON, map_stale: true } });
+  const out = await ixSubsystems.execute({}, context());
+  assert.doesNotMatch(out, /background refresh/);
 }));
