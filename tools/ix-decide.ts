@@ -1,6 +1,16 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { IxCommandError, parseIxJson, runIx, stripAnsi, ToolContext, toolDirectory } from "./base.ts";
+import {
+  IxCommandError,
+  LookupOutcome,
+  lookupOutcomeLines,
+  lookupRecord,
+  parseIxJson,
+  runIx,
+  stripAnsi,
+  ToolContext,
+  toolDirectory,
+} from "./base.ts";
 import { ImpactRecord, readImpact } from "./impact-record.ts";
 
 export const name = "ix-decide";
@@ -53,7 +63,7 @@ function readVerdictImpact(result: ImpactRecord): Reading {
 }
 
 /**
- * What `ix impact` said about one file. Three different answers, because they
+ * What `ix impact` said about one file. Four different answers, because they
  * call for different verdicts:
  *
  * - measured: ix answered with an impact; its risk drives the verdict.
@@ -62,11 +72,15 @@ function readVerdictImpact(result: ImpactRecord): Reading {
  * - unassessed: ix could not answer at all (not installed, backend down,
  *   workspace not mapped, graph empty or hollowed). That says nothing about
  *   the file, so it neither raises nor lowers the verdict; the output says so.
+ * - unresolved: ix answered, but the path matched several entities or none it
+ *   knows (Ix#853 exits 2 and 3). Nothing was measured, so it weighs like
+ *   unassessed, but the output carries ix's candidates or suggestions.
  */
 type Assessment =
   | { kind: "measured"; path: string; result: ImpactRecord }
   | { kind: "new"; path: string }
-  | { kind: "unassessed"; path: string; reason: string };
+  | { kind: "unassessed"; path: string; reason: string }
+  | { kind: "unresolved"; path: string; outcome: Exclude<LookupOutcome, { kind: "not_mapped" }> };
 
 /** `ix impact` calls in flight at once. Each is a ~0.3 s node process. */
 const IMPACT_CONCURRENCY = 4;
@@ -95,6 +109,7 @@ async function formatImpactVerdict(
   const measured = assessments.filter((a): a is Extract<Assessment, { kind: "measured" }> => a.kind === "measured");
   const newFiles = assessments.filter((a) => a.kind === "new").map((a) => a.path);
   const unassessed = assessments.filter((a): a is Extract<Assessment, { kind: "unassessed" }> => a.kind === "unassessed");
+  const unresolved = assessments.filter((a): a is Extract<Assessment, { kind: "unresolved" }> => a.kind === "unresolved");
 
   let maxRisk = "low";
   let totalDependents = 0;
@@ -160,6 +175,15 @@ async function formatImpactVerdict(
         `Ix unavailable: it could not assess ${scope} (${unassessed[0].reason}). ` +
         "Allowed without an Ix check, so review callers yourself. " +
         "Check `ix status` (run `ix map` if the project is not mapped).";
+    } else if (unresolved.length > 0) {
+      const first = unresolved[0];
+      const scope =
+        unresolved.length === assessments.length
+          ? "this edit"
+          : `${unresolved.length} of ${assessments.length} files`;
+      requiredAction =
+        `Ix did not measure ${scope}: \`${first.path}\` is ${first.outcome.kind === "ambiguous" ? "ambiguous" : "not found"} in the graph (see below). ` +
+        "Allowed without an Ix check, so review callers yourself.";
     } else if (measured.length === 0 && newFiles.length > 0) {
       requiredAction = "Safe to proceed: new files have no dependents in the graph yet.";
     } else {
@@ -191,6 +215,12 @@ async function formatImpactVerdict(
 
   lines.push("", `**Required action:** ${requiredAction}`);
 
+  // After the required action: the pre-edit hook shows only the first 500
+  // characters of a REVIEW, and the candidates must not push the action out.
+  for (const a of unresolved) {
+    lines.push("", `**Not resolved by Ix:** \`${a.path}\``, ...lookupOutcomeLines(a.outcome));
+  }
+
   if (assessments.length > 1) {
     lines.push("", "**Per-file breakdown:**");
     for (const a of assessments) {
@@ -199,7 +229,11 @@ async function formatImpactVerdict(
           ? `${readings.get(a.path)!.risk.toUpperCase()}, ${readings.get(a.path)!.dependents} dependents`
           : a.kind === "new"
             ? "NEW, not in the graph yet"
-            : `NOT ASSESSED, ${a.reason}`;
+            : a.kind === "unresolved"
+              ? a.outcome.kind === "ambiguous"
+                ? `AMBIGUOUS, ${a.outcome.candidates.length} candidates`
+                : "NOT FOUND in the graph"
+              : `NOT ASSESSED, ${a.reason}`;
       lines.push(`- \`${a.path}\` — ${detail}`);
     }
   }
@@ -214,8 +248,9 @@ async function assess(filePath: string, dir: string): Promise<Assessment> {
   try {
     raw = await runIx(["impact", filePath, "--format", "json"], { cwd: dir });
   } catch (error) {
-    // ix exits 1 with its record on stdout for a miss (and for an unmapped
-    // workspace); with nothing on stdout, the failure itself is the reason.
+    // ix exits non-zero with its record on stdout for a miss, an ambiguous
+    // path or an unmapped workspace (3, 2, 4 since Ix#853; 1 before); with
+    // nothing on stdout, the failure itself is the reason.
     const stdout = error instanceof IxCommandError ? error.stdout : "";
     if (!stdout.trim()) return { kind: "unassessed", path: filePath, reason: failureReason(error) };
     raw = stdout;
@@ -245,6 +280,10 @@ async function assess(filePath: string, dir: string): Promise<Assessment> {
     if (!graph && fields.error === "unresolved_target" && (reason === "file_not_in_graph" || reason === "file_not_found")) {
       return { kind: "new", path: filePath };
     }
+    // Ix#853: an ambiguous path (exit 2) or one it cannot resolve (exit 3)
+    // comes with candidates or suggestions; show them rather than a bare slug.
+    const outcome = graph ? null : lookupRecord(raw);
+    if (outcome && outcome.kind !== "not_mapped") return { kind: "unresolved", path: filePath, outcome };
     return { kind: "unassessed", path: filePath, reason: graph ?? `\`${fields.error}\`` };
   }
 

@@ -1,7 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import {
-  ixUnavailableMessage,
+  lookupFailureMessage,
   runIxJson,
   ToolContext,
   toolDirectory,
@@ -56,7 +56,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
       cwd: dir,
     });
   } catch (error) {
-    return ixUnavailableMessage(`ix-impact: ${params.target}`, undefined, getErrorMessage(error));
+    return lookupFailureMessage(`ix-impact: ${params.target}`, error);
   }
 
   const { level: risk, dependents, regions, atRiskBehavior } = readImpact(record);
@@ -150,8 +150,4 @@ function formatReport(report: {
   }
 
   return lines.join("\n");
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

@@ -1,6 +1,15 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { IxCommandError, ixUnavailableMessage, runIx, stripAnsi, ToolContext, toolDirectory } from "./base.ts";
+import {
+  formatLookupOutcome,
+  IxCommandError,
+  ixUnavailableMessage,
+  lookupRecord,
+  runIx,
+  stripAnsi,
+  ToolContext,
+  toolDirectory,
+} from "./base.ts";
 import { ImpactRecord, readImpact } from "./impact-record.ts";
 
 export const name = "ix-docs-tool";
@@ -47,6 +56,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const statsOut = errorRecord(statsRaw) ? null : statsRaw;
 
   if (!locateOut && !overviewOut && failures.length > 0) {
+    // An ambiguous or unknown target (Ix#853 exits 2 and 3) comes with
+    // candidates or suggestions: what the agent needs to retry.
+    const answer = [locateRaw, overviewRaw].map(lookupRecord).find((o) => o !== null && o.kind !== "not_mapped");
+    if (answer) return formatLookupOutcome(`ix-docs-tool: ${params.target}`, answer);
     const first = failures[0];
     return [
       `## ix-docs-tool: ${params.target}`,
@@ -190,8 +203,13 @@ function errorRecord(out: string | null): IxErrorRecord | null {
   if (!out) return null;
   try {
     const parsed = JSON.parse(out) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && typeof (parsed as IxErrorRecord).error === "string") {
-      return parsed as IxErrorRecord;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as { error?: unknown; code?: unknown; message?: unknown };
+      if (typeof record.error === "string") return parsed as IxErrorRecord;
+      // `locate` reports an ambiguous target under `code`, with no `error` key.
+      if (record.code === "ambiguous_target") {
+        return { error: record.code, message: typeof record.message === "string" ? record.message : undefined };
+      }
     }
   } catch {
     // Not JSON: not an error record.

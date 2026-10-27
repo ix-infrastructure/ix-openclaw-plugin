@@ -1,7 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import {
-  ixUnavailableMessage,
+  lookupFailureMessage,
   runIxJson,
   ToolContext,
   toolDirectory,
@@ -65,7 +65,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   try {
     locate = await runIxJson<LocateResult>(locateArgs, { cwd: dir });
   } catch (error) {
-    return ixUnavailableMessage(`ix-query: ${params.symbol}`, undefined, getErrorMessage(error));
+    return lookupFailureMessage(`ix-query: ${params.symbol}`, error);
   }
 
   const results = locate.results ?? [];
@@ -129,8 +129,4 @@ function formatQuery(
   }
 
   return lines.join("\n");
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
