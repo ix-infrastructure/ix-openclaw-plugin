@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { lookupFailureMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-inventory";
@@ -43,10 +43,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
       { cwd: dir }
     );
   } catch (error) {
-    return ixUnavailableMessage(
+    return lookupFailureMessage(
       `ix-inventory: ${params.path}`,
-      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.",
-      getErrorMessage(error)
+      error,
+      "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run."
     );
   }
 
@@ -77,8 +77,4 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   return lines.join("\n");
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

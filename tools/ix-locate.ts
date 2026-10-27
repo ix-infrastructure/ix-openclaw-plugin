@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { ixUnavailableMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { lookupFailureMessage, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 import { tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-locate";
@@ -56,7 +56,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     const parsed = await runIxJson<any>(args, { cwd: dir });
     hits = Array.isArray(parsed) ? parsed : parsed.hits ?? [];
   } catch (error) {
-    return ixUnavailableMessage(`ix-locate: ${params.pattern}`, "**ix unavailable.** Ensure the ix CLI is installed and the graph is indexed.", getErrorMessage(error));
+    return lookupFailureMessage(`ix-locate: ${params.pattern}`, error, "**ix unavailable.** Ensure the ix CLI is installed and the graph is indexed.");
   }
 
   if (hits.length === 0) {
@@ -79,8 +79,4 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   return lines.join("\n");
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

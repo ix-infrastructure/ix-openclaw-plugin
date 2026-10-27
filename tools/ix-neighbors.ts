@@ -1,6 +1,6 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
-import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { formatLookupOutcome, LookupOutcome, lookupOutcome, runIxJson, ToolContext, toolDirectory } from "./base.ts";
 
 export const name = "ix-neighbors";
 export const description =
@@ -40,24 +40,22 @@ interface Params {
   depth?: number;
 }
 
+const DIRECTIONS: readonly string[] = ["callers", "callees", "depends", "imported-by"];
+
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
   const direction = params.direction ?? "all";
   const limit = Math.min(params.limit ?? 15, 30);
   const depth = Math.min(params.depth ?? 2, 3);
 
+  const directions = direction === "all" ? ["callers", "callees"] : DIRECTIONS.includes(direction) ? [direction] : [];
   const sections = [`## ix-neighbors: ${params.symbol}`, ""];
-  if (direction === "callers" || direction === "all") {
-    sections.push(await fetchSection(dir, "callers", params.symbol, limit));
-  }
-  if (direction === "callees" || direction === "all") {
-    sections.push(await fetchSection(dir, "callees", params.symbol, limit));
-  }
-  if (direction === "depends") {
-    sections.push(await fetchSection(dir, "depends", params.symbol, limit, depth));
-  }
-  if (direction === "imported-by") {
-    sections.push(await fetchSection(dir, "imported-by", params.symbol, limit));
+  for (const name of directions) {
+    const section = await fetchSection(dir, name, params.symbol, limit, name === "depends" ? depth : undefined);
+    // Every direction resolves the same target, so an ambiguous, unknown or
+    // unmapped target is one answer for all of them: show it once and stop.
+    if (typeof section !== "string") return formatLookupOutcome(`ix-neighbors: ${params.symbol}`, section);
+    sections.push(section);
   }
 
   return sections.join("\n");
@@ -69,7 +67,7 @@ async function fetchSection(
   symbol: string,
   limit: number,
   depth?: number
-): Promise<string> {
+): Promise<string | LookupOutcome> {
   try {
     const parsed = await runIxJson<{ items?: any[]; count?: number }>(
       direction === "depends" && depth !== undefined
@@ -91,6 +89,8 @@ async function fetchSection(
 
     return lines.join("\n") + "\n";
   } catch (error) {
+    const outcome = lookupOutcome(error);
+    if (outcome) return outcome;
     return `**${direction}:** unavailable — ${getErrorMessage(error)}\n`;
   }
 }

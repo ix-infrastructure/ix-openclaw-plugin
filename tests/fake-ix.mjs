@@ -21,6 +21,8 @@
  * shape; a canned record in the old `risk`/`dependentCount` shape, which no
  * released ix ever printed, fails loudly, so no test can pass on fields ix
  * never sends.
+ * `setLookup()` makes a graph lookup of a given target answer with a record
+ * and an Ix#853 exit code (2 ambiguous, 3 not found, 4 not mapped, or 1).
  * `ix briefing` answers from `briefing.txt` (text|json only, like @ix/pro) and
  * fails as if Ix Pro were absent when no test set one.
  *
@@ -73,6 +75,27 @@ try { statSync(path.join(dir, "unreachable")); unreachable = true; } catch {}
 if (unreachable && command !== "--version" && command !== "text") {
   // Coloured, as the real CLI's stderr is even when piped.
   fail("\\u001b[31mError: fetch failed (bad port)\\u001b[39m");
+}
+
+// setLookup(): a graph lookup of a canned target answers as ix does since
+// Ix#853 -- its record on stdout and a distinct exit (2 ambiguous, 3 not found,
+// 4 not mapped; or 1, as an older ix does). The llm format gets the record's
+// \`error code=<slug>\` line with the same exit. The target is the first
+// positional argument (\`--path\` for inventory).
+let lookups = {};
+try { lookups = JSON.parse(readFileSync(path.join(dir, "lookup.json"), "utf8")); } catch {}
+const lookupTarget = command === "inventory"
+  ? rest[rest.indexOf("--path") + 1]
+  : rest.find((arg) => !arg.startsWith("-"));
+const lookup = Object.prototype.hasOwnProperty.call(lookups, lookupTarget) ? lookups[lookupTarget] : null;
+if (lookup && command !== "--version") {
+  if (rest[rest.indexOf("--format") + 1] === "llm") {
+    const slug = lookup.body.error ?? lookup.body.code;
+    process.stdout.write("error code=" + slug + " message=" + JSON.stringify(lookup.body.message ?? "") + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify(lookup.body) + "\\n");
+  }
+  process.exit(lookup.exit);
 }
 
 const DEFAULT_IMPACT = ${JSON.stringify(impactRecord())};
@@ -267,6 +290,13 @@ export function installFakeIx() {
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {
       writeFileSync(path.join(dir, "briefing.txt"), text);
+    },
+    /**
+     * Answer every graph lookup of `responses[target]` with `{exit, body}`:
+     * `body` printed as JSON (or as an `error code=` line for llm), then exit.
+     */
+    setLookup(responses) {
+      writeFileSync(path.join(dir, "lookup.json"), JSON.stringify(responses));
     },
     /** Make graph reads fail with ix's workspace_not_mapped record. */
     setUnmapped() {
