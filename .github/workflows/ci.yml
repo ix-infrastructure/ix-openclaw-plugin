@@ -39,7 +39,7 @@ jobs:
       # python3 is preinstalled; the script shells out only to git).
       - name: Copyright headers on every source file
         run: python3 .github/scripts/copyright-headers.py
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: "npm"
@@ -102,7 +102,7 @@ jobs:
           persist-credentials: false
       # The ix launcher runs on the same Node; 22.x latest satisfies both it and
       # the openclaw dev dependency (>=22.22.3).
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: "npm"
