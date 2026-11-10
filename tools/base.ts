@@ -120,8 +120,15 @@ export interface LookupEntity {
   kind?: string;
   path?: string;
   line?: number;
+  /** ix's own `--pick` number for this candidate, when ix numbered it. */
   pick?: number;
 }
+
+/**
+ * The parameters a tool accepts to narrow an ambiguous lookup, by their tool
+ * parameter names. A lookup answer only suggests the ones the tool has.
+ */
+export type LookupNarrowing = readonly ("path" | "kind")[];
 
 /**
  * What a graph lookup answered when it did not return results. Since Ix#853
@@ -199,7 +206,9 @@ function lookupEntities(value: unknown): LookupEntity[] {
       kind: firstString(row.kind),
       path: firstString(row.path, row.file, row.filePath),
       line: firstNumber(row.line, row.lineStart, row.line_start, row.startLine),
-      pick: firstNumber(row.pick),
+      // ix numbers symbol candidates in `rank` (1-based, in --pick order);
+      // `ix subsystems` sends `pick`.
+      pick: firstNumber(row.pick, row.rank),
     });
   }
   return entities;
@@ -225,7 +234,7 @@ export function formatLookupEntity(entity: LookupEntity): string {
 }
 
 /** The body lines for a lookup answer, without a header. */
-export function lookupOutcomeLines(outcome: LookupOutcome): string[] {
+export function lookupOutcomeLines(outcome: LookupOutcome, narrowing: LookupNarrowing = []): string[] {
   const lines: string[] = [];
   if (outcome.kind === "ambiguous") {
     const count = outcome.candidates.length;
@@ -239,12 +248,7 @@ export function lookupOutcomeLines(outcome: LookupOutcome): string[] {
       lines.push(`- ${pick}${formatLookupEntity(candidate)}`);
     }
     if (count > MAX_CANDIDATES) lines.push(`- … ${count - MAX_CANDIDATES} more`);
-    lines.push(
-      "",
-      shown.some((candidate) => typeof candidate.pick === "number")
-        ? "Retry with `--pick <n>` as numbered above, or narrow with `--path <dir>` or `--kind <kind>`."
-        : "Narrow the lookup with `--path <dir>` or `--kind <kind>` to choose one."
-    );
+    lines.push("", ambiguousAdvice(shown.some((candidate) => typeof candidate.pick === "number"), narrowing));
   } else if (outcome.kind === "not_found") {
     lines.push(`**Not found in the graph.**${outcome.message ? ` ${outcome.message}` : ""}`);
     if (outcome.suggestions.length > 0) {
@@ -265,18 +269,37 @@ export function lookupOutcomeLines(outcome: LookupOutcome): string[] {
   return lines;
 }
 
+/**
+ * How to retry an ambiguous lookup. It names only the parameters the calling
+ * tool accepts; no tool takes `--pick`, so that one is offered for the ix CLI.
+ */
+function ambiguousAdvice(numbered: boolean, narrowing: LookupNarrowing): string {
+  const params = [...new Set(narrowing)].map((name) => `\`${name}\``);
+  const narrow = params.length > 0
+    ? `Narrow it with this tool's ${params.join(" or ")} parameter`
+    : "Retry with a more specific target";
+  return numbered
+    ? `${narrow}, or run the ix CLI directly with \`--pick <n>\` as numbered above.`
+    : `${narrow} to choose one.`;
+}
+
 /** A tool's whole answer for a lookup outcome: its header, then what ix said. */
-export function formatLookupOutcome(title: string, outcome: LookupOutcome): string {
-  return [`## ${title}`, "", ...lookupOutcomeLines(outcome)].join("\n");
+export function formatLookupOutcome(title: string, outcome: LookupOutcome, narrowing: LookupNarrowing = []): string {
+  return [`## ${title}`, "", ...lookupOutcomeLines(outcome, narrowing)].join("\n");
 }
 
 /**
  * A graph lookup's catch: what ix said when it answered with exit 2/3/4 (or a
  * lookup record on exit 1), else the tool's "ix unavailable" message.
  */
-export function lookupFailureMessage(title: string, error: unknown, unavailableBody?: string): string {
+export function lookupFailureMessage(
+  title: string,
+  error: unknown,
+  unavailableBody?: string,
+  narrowing: LookupNarrowing = []
+): string {
   const outcome = lookupOutcome(error);
-  if (outcome) return formatLookupOutcome(title, outcome);
+  if (outcome) return formatLookupOutcome(title, outcome, narrowing);
   return ixUnavailableMessage(title, unavailableBody, error instanceof Error ? error.message : String(error));
 }
 
