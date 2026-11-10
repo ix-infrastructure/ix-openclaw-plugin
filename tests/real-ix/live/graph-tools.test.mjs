@@ -144,8 +144,12 @@ test("ix-smells reads back stored smells with ix smells --list (issue #71)", asy
   assert.match(out, /^## ix-smells/, out);
   assert.doesNotMatch(out, /sent no rows/, out);
   if (listed.record.smells.length > 0) {
+    assert.match(listed.record.smells[0].smell, /^has_smell\./, listed.raw);
     assert.match(out, /Stored smell results/, out);
+    assert.doesNotMatch(out, /has_smell\./, out);
     assert.match(out, new RegExp(`entity \`${listed.record.smells[0].entity_id}\``), out);
+  } else {
+    assert.match(out, /No smell results are stored/, out);
   }
   assert.doesNotMatch(out, CRASH, out);
 });

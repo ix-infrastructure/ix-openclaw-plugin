@@ -146,9 +146,10 @@ An invalid skill:
 | Blast radius | `ix impact <target> --format llm` |
 | List entities in path | `ix inventory --kind function --path <dir> --format llm` |
 | Text search | `ix text <pattern> --limit 20 --format llm` |
-| Code smells | `ix smells --format llm` |
+| Code smells (stored results) | `ix smells --list --format llm` |
 | Rank key components | `ix rank --by dependents --kind class --top 10 --format llm` |
 | Refresh graph | `ix map --silent` |
 
 > `ix rank` requires `--by` (dependents/callers/importers/members) and `--kind` — both required options.
 > Never use `ix query` — deprecated.
+> `ix smells` without `--list` re-runs smell detection and writes a new set of results to the Ix backend. Run it (or the `ix-smells` tool with `detect: true`) only when the user asks for fresh detection.

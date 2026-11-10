@@ -10,6 +10,7 @@
  *   ix map <non-directory>   -> exit 1, "Map path is not a directory"
  *   ix locate ... --limit    -> exit 1, "unknown option '--limit'"
  *   ix smells ... --path     -> exit 1, "unknown option '--path'"
+ *   ix smells ... --limit    -> exit 1, "unknown option '--limit'" before v0.14.0
  *   ix bugs | ix connect     -> exit 1, "unknown command"
  *
  * Every invocation is appended to `calls.log` as one JSON line
@@ -58,6 +59,18 @@ function fail(message) {
 
 const [command, ...rest] = argv;
 const has = (flag) => rest.includes(flag);
+
+// setVersion(): what \`ix --version\` prints (default 0.11.1). Flags a release
+// added are rejected below it, as commander rejects an unknown option.
+let version = "0.11.1";
+try { version = readFileSync(path.join(dir, "version"), "utf8").trim() || version; } catch {}
+function versionAtLeast(floor) {
+  const parts = version.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (parts[i] !== floor[i]) return parts[i] > floor[i];
+  return true;
+}
+// \`ix smells --limit\` arrived in v0.14.0 (Ix #828).
+if (command === "smells" && has("--limit") && !versionAtLeast([0, 14, 0])) fail("error: unknown option '--limit'");
 
 // setUnmapped(): graph reads answer as the real CLI does where no workspace
 // covers the directory -- an error record on stdout, exit 1.
@@ -211,7 +224,7 @@ switch (command) {
     break;
   }
   case "--version":
-    process.stdout.write("0.11.1\\n");
+    process.stdout.write(version + "\\n");
     break;
   default:
     process.stdout.write("{}\\n");
@@ -320,6 +333,10 @@ export function installFakeIx() {
       const records = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
       records[key] = record;
       writeFileSync(file, JSON.stringify(records));
+    },
+    /** Make `ix --version` print `version` (default 0.11.1). */
+    setVersion(version) {
+      writeFileSync(path.join(dir, "version"), version + "\n");
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {

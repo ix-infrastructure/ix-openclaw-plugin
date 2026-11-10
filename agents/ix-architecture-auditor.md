@@ -29,16 +29,22 @@ Build the region hierarchy. Flag immediately:
 
 Sort regions: worst health first.
 
-### Step 2 — Smell detection
+### Step 2 — Smells
 
 ```bash
-ix smells --format llm
+ix smells --list --format llm
 ```
 
+This reads the smell results already stored in the graph and runs nothing. Each row names
+the smell kind (`has_smell.orphan_file`, …) and a 12-character entity id, not a file.
+If nothing is stored, say so. Do not run `ix smells` without `--list` (or the `ix-smells`
+tool with `detect: true`) unless the user asks for fresh detection: it re-runs the analysis
+and writes a new set of results to the Ix backend.
+
 Classify each smell:
-- `orphan` — files with no significant connections (dead code, isolation debt)
-- `god-module` — files with too many chunks or too high fan-in/out (too much responsibility)
-- `weak-component` — weakly connected files (loosely held together, artificial grouping)
+- `orphan_file` — files with no significant connections (dead code, isolation debt)
+- `god_module` — files with too many chunks or too high fan-in/out (too much responsibility)
+- `weak_component_member` — weakly connected files (loosely held together, artificial grouping)
 
 ### Step 3 — Hotspot analysis (only if smells found or coupling is high)
 
@@ -57,8 +63,9 @@ If Step 1–3 identify one region as clearly the worst:
 ix subsystems <region> --explain
 ```
 
-Reuse the Step 2 `ix smells` output for this region — keep the findings whose file
-falls under the region's path (`ix smells` has no path filter).
+Reuse the Step 2 smells for this region (`ix smells` has no path filter, and stored rows
+name an entity id rather than a file, so only keep a finding for the region when you can
+tie its entity to the region's path).
 
 **Hard limit:** One region. Do not audit every subsystem — identify the worst and analyze that.
 

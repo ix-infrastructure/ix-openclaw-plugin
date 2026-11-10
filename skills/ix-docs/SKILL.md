@@ -279,11 +279,17 @@ Use this phase to populate:
 
 Use:
 ```bash
-timeout 60s ix smells --format llm
+timeout 60s ix smells --list --format llm
 ```
 
+This reads the smell results already stored in the graph and runs nothing. Each row names
+the smell kind (`has_smell.orphan_file`, …) and a 12-character entity id, not a file.
+If nothing is stored, say so. Do not run `ix smells` without `--list` (or the `ix-smells`
+tool with `detect: true`) unless the user asks for fresh detection: it re-runs the analysis
+and writes a new set of results to the Ix backend.
+
 `ix smells` always covers the whole graph (it has no path filter). If the target is
-smaller than a full repo, keep only the findings whose file falls under it.
+smaller than a full repo, say that the smells cover the whole graph.
 
 Prioritize:
 - god modules

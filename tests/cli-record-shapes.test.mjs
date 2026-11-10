@@ -14,9 +14,12 @@
 //   stats      {nodes: {total, byKind}, edges: {total, byPredicate: [{predicate, count}]}}
 //   status     {graphCompleted, mapCompleted, currentRev, staleFiles, lastIngestAt}
 //   overview   {keyItems, childrenByKind, ...}
-// and, read from the ix CLI's smells command at v0.11.1 and v0.13.0 (issue #71):
-//   smells --list  {count, inference_version, smells: [{smell, entity_id, confidence}]}
-//                  (no file and no run_at; only a detection run prints those)
+// and, read from the ix CLI's smells command at v0.12.0 and v0.14.0 (issue #71):
+//   smells --list  {count, inference_version, smells: [{smell, entity_id}]}
+//                  `smell` is the claim kind ("has_smell.orphan_file"), `entity_id`
+//                  12 characters. The CLI maps `s.confidence`, but the backend
+//                  keeps it inside the claim's value, so JSON drops it. No file
+//                  and no run_at; only a detection run prints those.
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -117,10 +120,10 @@ const OVERVIEW = {
 
 const SMELLS_LIST = {
   count: 2,
-  inference_version: "test",
+  inference_version: "smell_v1",
   smells: [
-    { smell: "orphan", entity_id: "a1b2c3d4e5f6", confidence: 0.91 },
-    { smell: "orphan", entity_id: "0f9e8d7c6b5a", confidence: 0.6 },
+    { smell: "has_smell.orphan_file", entity_id: "a1b2c3d4e5f6" },
+    { smell: "has_smell.orphan_file", entity_id: "0f9e8d7c6b5a" },
   ],
 };
 
@@ -420,9 +423,10 @@ test("ix-smells lists the stored smells ix smells --list prints", withFake(async
   ix.setRecord("smells --list", SMELLS_LIST);
   const out = await ixSmells.execute({}, ctx);
   assert.match(out, /\*\*2 smells detected\*\*/, out);
-  assert.match(out, /### orphan \(2\)/, out);
-  assert.match(out, /- entity `a1b2c3d4e5f6` — confidence: 0\.91/, out);
-  assert.match(out, /- entity `0f9e8d7c6b5a` — confidence: 0\.60/, out);
+  assert.match(out, /### orphan_file \(2\)/, out);
+  assert.match(out, /- entity `a1b2c3d4e5f6`\n/, out);
+  assert.match(out, /- entity `0f9e8d7c6b5a`\n/, out);
+  assert.doesNotMatch(out, /has_smell\.|confidence/, out);
   assert.doesNotMatch(out, /sent no rows/, out);
   assert.doesNotMatch(out, CRASH, out);
   // A read: no detection run.

@@ -2,9 +2,9 @@
 
 // Issue #71: `ix smells` without `--list` runs smell detection on the backend
 // and stores a new set of smell claims, a write. ix-smells is a read tool an
-// agent may call several times in one review, so by default it reads the
-// stored claims with `ix smells --list` and runs detection only when asked to
-// (`detect: true`) or when nothing is stored yet on a mapped graph.
+// agent may call several times in one review, so it reads the stored claims
+// with `ix smells --list` and runs detection only when asked to
+// (`detect: true`), never on its own.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,21 +12,29 @@ import { installFakeIx } from "./fake-ix.mjs";
 import { resetLlmVersionCache } from "../dist/runtime/llm.js";
 import * as ixSmells from "../dist/tools/ix-smells.js";
 
-// What `ix smells --list --format json` prints: the stored claims, each with
-// a 12-character entity id prefix and no file or run time.
+// What `ix smells --list --format json` prints (Ix ix-cli smells.ts, v0.12.0
+// to v0.14.0): `smell` is the claim kind and `entity_id` its entity's first 12
+// characters. The CLI also maps `s.confidence`, but the backend keeps
+// confidence, file and signals inside the claim's `value`, so the field is
+// undefined and JSON drops it: a real row has only these two fields.
 const STORED = {
   count: 2,
-  inference_version: "test",
+  inference_version: "smell_v1",
   smells: [
-    { smell: "orphan", entity_id: "a1b2c3d4e5f6", confidence: 0.91 },
-    { smell: "god-module", entity_id: "0f9e8d7c6b5a", confidence: 0.77 },
+    { smell: "has_smell.orphan_file", entity_id: "a1b2c3d4e5f6" },
+    { smell: "has_smell.god_module", entity_id: "0f9e8d7c6b5a" },
   ],
 };
 
+const EMPTY = { count: 0, inference_version: "smell_v1", smells: [] };
+
+// What `ix smells --format json` (detection) prints.
 const DETECTED = {
-  candidates: [{ smell: "orphan", file: "src/fresh.ts", confidence: 0.88 }],
-  count: 1,
+  rev: 7,
   run_at: "2026-11-09T12:00:00Z",
+  count: 1,
+  inference_version: "smell_v1",
+  candidates: [{ file: "src/fresh.ts", smell: "has_smell.orphan_file", confidence: 0.88, signals: { connectivity: 0 } }],
 };
 
 // A detection run is `ix smells` without `--list`.
@@ -54,8 +62,12 @@ test("a default ix-smells call reads stored claims with `ix smells --list` and r
     assert.deepEqual(ix.calls().filter(isDetect), [], "a default call must not run detection");
     assert.match(output, /^## ix-smells/);
     assert.match(output, /\*\*2 smells detected\*\*/);
-    assert.match(output, /### orphan \(1\)\n- entity `a1b2c3d4e5f6` — confidence: 0\.91/);
-    assert.match(output, /### god-module \(1\)\n- entity `0f9e8d7c6b5a` — confidence: 0\.77/);
+    // The kind without its `has_smell.` namespace, over the row's entity id.
+    assert.match(output, /### orphan_file \(1\)\n- entity `a1b2c3d4e5f6`\n/);
+    assert.match(output, /### god_module \(1\)\n- entity `0f9e8d7c6b5a`\n/);
+    assert.doesNotMatch(output, /has_smell\./);
+    // A stored row carries no confidence; none is made up.
+    assert.doesNotMatch(output, /confidence/);
     assert.doesNotMatch(output, /sent no rows/);
     assert.doesNotMatch(output, /src\/fresh\.ts/);
     assert.match(output, /stored/i, "must say the results are stored ones");
@@ -71,75 +83,50 @@ test("detect: true runs detection and says it stored new results", async () => {
 
     assert.ok(ix.calls().some(isDetect), "detect: true must run ix smells");
     assert.deepEqual(ix.calls().filter(isList), [], "detect: true goes straight to detection");
-    assert.match(output, /src\/fresh\.ts/);
+    assert.match(output, /### orphan_file \(1\)\n- `src\/fresh\.ts` — confidence: 0\.88/);
+    assert.match(output, /signals: connectivity: 0/);
     assert.match(output, /ran smell detection/i);
+    assert.match(output, /Analysis run at: 2026-11-09T12:00:00Z/);
   });
 });
 
-test("nothing stored on a mapped graph: runs detection once and says so", async () => {
-  await withFakeIx(async (ix) => {
-    ix.setRecord("smells --list", { count: 0, inference_version: "test", smells: [] });
-    ix.setRecord("smells", DETECTED);
-    ix.setRecord("status", { graphCompleted: true, mapCompleted: true });
-    const output = await ixSmells.execute({}, { directory: ix.dir });
+for (const [state, graph] of [
+  ["a mapped graph", { graphCompleted: true, mapCompleted: true }],
+  ["an unmapped graph", { graphCompleted: false, mapCompleted: false }],
+]) {
+  test(`nothing stored on ${state}: no detection, says so and points at detect: true`, async () => {
+    await withFakeIx(async (ix) => {
+      ix.setRecord("smells --list", EMPTY);
+      ix.setRecord("smells", DETECTED);
+      ix.setRecord("status", graph);
+      const outputs = [];
+      for (let i = 0; i < 3; i++) outputs.push(await ixSmells.execute({}, { directory: ix.dir }));
 
-    // Once: the llm fast path and, when it gives no text, its JSON fallback,
-    // never the same detection twice.
-    const detections = ix.calls().filter(isDetect).map((call) => call.argv.join(" "));
-    assert.ok(detections.length > 0, "should run detection");
-    assert.equal(new Set(detections).size, detections.length, `detection repeated: ${detections.join(" | ")}`);
-    assert.match(output, /src\/fresh\.ts/);
-    assert.match(output, /no stored smell results/i);
-    assert.match(output, /ran smell detection/i);
+      assert.deepEqual(ix.calls().filter(isDetect), [], "a default call must never run detection");
+      assert.equal(ix.calls().filter(isList).length, 3, "every default call reads with --list");
+      for (const output of outputs) {
+        assert.match(output, /^## ix-smells/);
+        assert.match(output, /No smell results are stored/);
+        // --list cannot tell a clean graph from one never checked.
+        assert.doesNotMatch(output, /Architecture looks clean/);
+        assert.match(output, /detect: true/);
+        assert.match(output, /writes/);
+        assert.match(output, /ix map/);
+        assert.doesNotMatch(output, /src\/fresh\.ts/);
+      }
+    });
   });
-});
+}
 
-test("nothing stored on an unmapped graph: no detection, points at ix map", async () => {
+test("after detect: true, a default call only reads", async () => {
   await withFakeIx(async (ix) => {
-    ix.setRecord("smells --list", { count: 0, inference_version: "test", smells: [] });
-    ix.setRecord("smells", DETECTED);
-    ix.setRecord("status", { graphCompleted: false, mapCompleted: false });
-    const output = await ixSmells.execute({}, { directory: ix.dir });
-
-    assert.deepEqual(ix.calls().filter(isDetect), [], "must not run detection on an unmapped graph");
-    assert.match(output, /^## ix-smells/);
-    assert.match(output, /ix map/);
-    assert.doesNotMatch(output, /src\/fresh\.ts/);
-  });
-});
-
-test("a clean mapped graph runs detection once, then later default calls only read", async () => {
-  await withFakeIx(async (ix) => {
-    // --list cannot tell "never detected" from "detected, found nothing".
-    ix.setRecord("smells --list", { count: 0, inference_version: "test", smells: [] });
-    ix.setRecord("status", { graphCompleted: true, mapCompleted: true });
-    const first = await ixSmells.execute({}, { directory: ix.dir });
-    const afterFirst = ix.calls().filter(isDetect).length;
-    assert.ok(afterFirst > 0, "the first call on an empty store should detect");
-    assert.match(first, /ran smell detection/i);
-
-    const second = await ixSmells.execute({}, { directory: ix.dir });
-    const third = await ixSmells.execute({}, { directory: ix.dir });
-    assert.equal(ix.calls().filter(isDetect).length, afterFirst, "later default calls must not re-run detection");
-    for (const output of [second, third]) {
-      assert.match(output, /^## ix-smells/);
-      assert.match(output, /already ran/);
-      assert.match(output, /No code smells detected/);
-      assert.match(output, /detect: true/);
-    }
-    assert.equal(ix.calls().filter(isList).length, 3, "every default call reads with --list");
-  });
-});
-
-test("after detect: true, an empty store is not detected again by default calls", async () => {
-  await withFakeIx(async (ix) => {
-    ix.setRecord("status", { graphCompleted: true, mapCompleted: true });
     await ixSmells.execute({ detect: true }, { directory: ix.dir });
     const afterDetect = ix.calls().filter(isDetect).length;
+    assert.ok(afterDetect > 0);
     // No record: the fake's own --list answer is the real empty shape.
     const output = await ixSmells.execute({}, { directory: ix.dir });
     assert.equal(ix.calls().filter(isDetect).length, afterDetect);
-    assert.match(output, /already ran/);
+    assert.match(output, /No smell results are stored/);
 
     // detect: true always runs.
     await ixSmells.execute({ detect: true }, { directory: ix.dir });
@@ -162,6 +149,7 @@ test("when ix smells --list fails, ix-smells reports it and does not fall back t
 test("the tool schema offers `detect` and the description says it writes", () => {
   assert.equal(ixSmells.parameters.properties.detect?.type, "boolean");
   assert.match(ixSmells.parameters.properties.detect.description, /writ|stores/i);
+  assert.match(ixSmells.parameters.properties.detect.description, /never runs detection unless/);
   assert.match(ixSmells.description, /detect/);
   assert.match(ixSmells.description, /writ|stores/i);
 });
@@ -179,11 +167,59 @@ test("detect: true keeps the llm fast path under the tool's header and source li
 
 test("a count with no readable rows is not reported as a clean graph", async () => {
   await withFakeIx(async (ix) => {
-    ix.setRecord("smells --list", { count: 3, inference_version: "test" });
+    ix.setRecord("smells --list", { count: 3, inference_version: "smell_v1" });
     const output = await ixSmells.execute({}, { directory: ix.dir });
 
     assert.deepEqual(ix.calls().filter(isDetect), []);
     assert.doesNotMatch(output, /Architecture looks clean/);
     assert.match(output, /reported 3 smells/);
   });
+});
+
+test("--list gets the tool's limit on an ix that accepts it (v0.14.0+)", async () => {
+  await withFakeIx(async (ix) => {
+    ix.setVersion("0.14.0");
+    // With --limit, ix prints the total as count plus shown/truncated.
+    ix.setRecord("smells --list", {
+      count: 3,
+      shown: 1,
+      truncated: true,
+      inference_version: "smell_v1",
+      smells: [{ smell: "has_smell.god_module", entity_id: "0f9e8d7c6b5a" }],
+    });
+    const output = await ixSmells.execute({ limit: 1 }, { directory: ix.dir });
+
+    const list = ix.calls().find(isList);
+    assert.deepEqual(list.argv, ["smells", "--list", "--limit", "1", "--format", "json"]);
+    assert.match(output, /\*\*3 smells detected\*\* \(showing 1 of 3\)/);
+    assert.match(output, /### god_module \(1\)/);
+  });
+});
+
+test("--list sends no --limit to an ix older than v0.14.0, and the tool caps the rows itself", async () => {
+  await withFakeIx(async (ix) => {
+    // The fake's default version (0.11.1) rejects `smells --limit`, as the
+    // released v0.12.0 that CI pins does.
+    ix.setRecord("smells --list", STORED);
+    const output = await ixSmells.execute({ limit: 1 }, { directory: ix.dir });
+
+    const list = ix.calls().find(isList);
+    assert.deepEqual(list.argv, ["smells", "--list", "--format", "json"]);
+    assert.doesNotMatch(output, /unavailable/i);
+    assert.match(output, /\*\*2 smells detected\*\* \(showing 1 of 2\)/);
+    assert.match(output, /### orphan_file \(1\)/);
+    assert.doesNotMatch(output, /god_module/);
+  });
+});
+
+test("the limit sent to ix is a whole number from 1 to 200", async () => {
+  for (const [limit, sent] of [[500, "200"], [0, "1"], [-4, "1"], [7.9, "7"], [undefined, "50"]]) {
+    await withFakeIx(async (ix) => {
+      ix.setVersion("0.14.0");
+      ix.setRecord("smells --list", STORED);
+      await ixSmells.execute(limit === undefined ? {} : { limit }, { directory: ix.dir });
+      const list = ix.calls().find(isList);
+      assert.equal(list.argv[list.argv.indexOf("--limit") + 1], sent, `limit ${limit}`);
+    });
+  }
 });
