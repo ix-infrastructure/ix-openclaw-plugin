@@ -33,6 +33,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { parseIxJson, runIx } from "../tools/base.ts";
+import { ixLaunch } from "../tools/ix-command.ts";
 
 const DEFAULT_DEBOUNCE_SECONDS = 300;
 const GIT_TIMEOUT_MS = 5_000;
@@ -164,7 +165,9 @@ export async function requestGuardedMap(
     }
 
     try {
-      const child = spawn("ix", ["map", root, "--silent"], {
+      const launch = ixLaunch(["map", root, "--silent"]);
+      const child = spawn(launch.file, launch.args, {
+        ...launch.options,
         cwd: root,
         detached: true,
         stdio: "ignore",
