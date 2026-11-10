@@ -137,7 +137,10 @@ switch (command) {
     break;
   case "smells":
     if (has("--path")) fail("error: unknown option '--path'");
-    process.stdout.write(rest.includes("llm") ? "smells none\\n" : JSON.stringify({ candidates: [], count: 0 }) + "\\n");
+    // --list reads the stored claims: {count, inference_version, smells: [...]};
+    // detection prints {run_at, count, candidates: [...]}.
+    if (has("--list")) process.stdout.write(rest.includes("llm") ? "" : JSON.stringify({ count: 0, smells: [] }) + "\\n");
+    else process.stdout.write(rest.includes("llm") ? "smells none\\n" : JSON.stringify({ candidates: [], count: 0 }) + "\\n");
     break;
   case "status": {
     const rootIndex = rest.indexOf("--root");

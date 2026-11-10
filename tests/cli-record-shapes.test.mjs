@@ -14,6 +14,9 @@
 //   stats      {nodes: {total, byKind}, edges: {total, byPredicate: [{predicate, count}]}}
 //   status     {graphCompleted, mapCompleted, currentRev, staleFiles, lastIngestAt}
 //   overview   {keyItems, childrenByKind, ...}
+// and, read from the ix CLI's smells command at v0.11.1 and v0.13.0 (issue #71):
+//   smells --list  {count, inference_version, smells: [{smell, entity_id, confidence}]}
+//                  (no file and no run_at; only a detection run prints those)
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
@@ -27,6 +30,7 @@ import * as ixIngest from "../dist/tools/ix-ingest.js";
 import * as ixMap from "../dist/tools/ix-map.js";
 import * as ixNeighbors from "../dist/tools/ix-neighbors.js";
 import * as ixQuery from "../dist/tools/ix-query.js";
+import * as ixSmells from "../dist/tools/ix-smells.js";
 import * as ixStats from "../dist/tools/ix-stats.js";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -109,6 +113,15 @@ const OVERVIEW = {
     { name: "parseIxJson", kind: "function" },
   ],
   childrenByKind: { function: 12, class: 1 },
+};
+
+const SMELLS_LIST = {
+  count: 2,
+  inference_version: "test",
+  smells: [
+    { smell: "orphan", entity_id: "a1b2c3d4e5f6", confidence: 0.91 },
+    { smell: "orphan", entity_id: "0f9e8d7c6b5a", confidence: 0.6 },
+  ],
 };
 
 const CRASH = /\[object Object\]|undefined|NaN/;
@@ -401,4 +414,17 @@ test("ix-docs-tool's overview reads the target and child counts ix overview prin
   assert.match(out, /\*\*Path:\*\* tools\/base\.ts/, out);
   assert.match(out, /\*\*Contains:\*\* 12 function, 1 class/, out);
   assert.doesNotMatch(out, CRASH, out);
+}));
+
+test("ix-smells lists the stored smells ix smells --list prints", withFake(async (ix) => {
+  ix.setRecord("smells --list", SMELLS_LIST);
+  const out = await ixSmells.execute({}, ctx);
+  assert.match(out, /\*\*2 smells detected\*\*/, out);
+  assert.match(out, /### orphan \(2\)/, out);
+  assert.match(out, /- entity `a1b2c3d4e5f6` — confidence: 0\.91/, out);
+  assert.match(out, /- entity `0f9e8d7c6b5a` — confidence: 0\.60/, out);
+  assert.doesNotMatch(out, /sent no rows/, out);
+  assert.doesNotMatch(out, CRASH, out);
+  // A read: no detection run.
+  assert.equal(ix.calls().some((call) => call.argv[0] === "smells" && !call.argv.includes("--list")), false);
 }));
