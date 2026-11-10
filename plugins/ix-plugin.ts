@@ -6,6 +6,7 @@ import type {
   OpenClawPluginApi,
   OpenClawPluginToolContext,
 } from "openclaw/plugin-sdk/plugin-entry";
+import { statSync } from "node:fs";
 import { dirname, resolve as resolvePath, isAbsolute } from "node:path";
 
 import * as ixDocsTool from "../tools/ix-docs-tool.ts";
@@ -67,6 +68,10 @@ const SKIP_COMPILED = /(__pycache__|\.pyc|\.class|\.o)$/;
 // Safety cap: an entry is removed by after_tool_call, but a call that never
 // completes (denied approval, host crash) would otherwise stay forever.
 const PENDING_WRITE_PATHS_MAX = 256;
+// The pre-edit gate holds the edit while ix-decide waits on `ix impact`. This
+// caps the whole wait; a file ix has not answered for by then is "not
+// assessed", which never raises the verdict.
+const PRE_EDIT_GATE_TIMEOUT_MS = 8000;
 
 const pendingWritePaths = new Map<string, string[]>();
 let briefingCache:
@@ -196,12 +201,15 @@ async function handleBeforeToolCall(event: WriteToolEvent, workspaceDir?: string
   const targetPaths = resolveWritePaths(event, workspaceDir);
   if (targetPaths.length === 0) return;
 
+  // The paths are absolute, so any directory in the project will do; a
+  // `write` may target a directory that does not exist yet.
   const verdict = await ixDecide.execute(
     {
       touched_paths: targetPaths,
       intent: toolName === "write" ? "add" : "edit",
     },
-    { directory: dirname(targetPaths[0]) }
+    { directory: nearestExistingDir(dirname(targetPaths[0])) },
+    { timeoutMs: PRE_EDIT_GATE_TIMEOUT_MS }
   );
 
   const decision = parseDecisionVerdict(verdict);
@@ -241,6 +249,22 @@ function resolveWritePaths(event: WriteToolEvent, workspaceDir?: string): string
     if (absolute && !shouldSkipPath(absolute)) resolved.add(absolute);
   }
   return [...resolved];
+}
+
+/**
+ * `dir`, or its nearest ancestor that exists: the file's own directory where
+ * there is one, so ix resolves the same workspace it did before, and never a
+ * directory the spawn would fail on (Node reports that as `spawn ix ENOENT`).
+ */
+function nearestExistingDir(dir: string): string {
+  for (let current = dir; ; current = dirname(current)) {
+    try {
+      if (statSync(current).isDirectory()) return current;
+    } catch {
+      // Not there yet: try the parent.
+    }
+    if (dirname(current) === current) return current;
+  }
 }
 
 function rememberWritePaths(toolCallId: unknown, targetPaths: string[]): void {

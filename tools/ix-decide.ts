@@ -85,26 +85,37 @@ type Assessment =
 /** `ix impact` calls in flight at once. Each is a ~0.3 s node process. */
 const IMPACT_CONCURRENCY = 4;
 
-export async function execute(params: Params, context: ToolContext): Promise<string> {
+export interface DecideOptions {
+  /**
+   * Budget for the whole verdict, every `ix impact` included. A file ix has
+   * not answered for by then is not assessed. Unset, each call gets runIx's
+   * default. The pre-edit hook sets it: it holds the edit while it waits.
+   */
+  timeoutMs?: number;
+}
+
+export async function execute(params: Params, context: ToolContext, options: DecideOptions = {}): Promise<string> {
   const dir = toolDirectory(context);
   const intent = params.intent ?? "edit";
   const riskTolerance = params.risk_tolerance ?? "medium";
+  const deadline = options.timeoutMs !== undefined ? Date.now() + options.timeoutMs : undefined;
 
-  return formatImpactVerdict(params.touched_paths, intent, riskTolerance, dir);
+  return formatImpactVerdict(params.touched_paths, intent, riskTolerance, dir, deadline);
 }
 
 async function formatImpactVerdict(
   paths: string[],
   intent: string,
   riskTolerance: string,
-  dir: string
+  dir: string,
+  deadline: number | undefined
 ): Promise<string> {
   // Every path is measured. This used to stop at the first five, and the rest
   // were neither measured nor reported, so a large patch could be ALLOWed on
   // the strength of its first five files. A bounded pool keeps a big
   // apply_patch from spawning one ix per file at once.
   const unique = Array.from(new Set(paths));
-  const assessments = await mapPool(unique, IMPACT_CONCURRENCY, (filePath) => assess(filePath, dir));
+  const assessments = await mapPool(unique, IMPACT_CONCURRENCY, (filePath) => assess(filePath, dir, deadline));
 
   const measured = assessments.filter((a): a is Extract<Assessment, { kind: "measured" }> => a.kind === "measured");
   const newFiles = assessments.filter((a) => a.kind === "new").map((a) => a.path);
@@ -243,15 +254,23 @@ async function formatImpactVerdict(
 }
 
 /** Ask `ix impact` about one file and sort its answer into an Assessment. */
-async function assess(filePath: string, dir: string): Promise<Assessment> {
+async function assess(filePath: string, dir: string, deadline: number | undefined): Promise<Assessment> {
+  let timeoutMs: number | undefined;
+  if (deadline !== undefined) {
+    timeoutMs = deadline - Date.now();
+    // Earlier files used the budget up: this one waits no longer.
+    if (timeoutMs <= 0) return { kind: "unassessed", path: filePath, reason: "ix did not answer in time" };
+  }
+
   let raw: string;
   try {
-    raw = await runIx(["impact", filePath, "--format", "json"], { cwd: dir });
+    raw = await runIx(["impact", filePath, "--format", "json"], { cwd: dir, timeoutMs });
   } catch (error) {
     // ix exits non-zero with its record on stdout for a miss, an ambiguous
     // path or an unmapped workspace (3, 2, 4 since Ix#853; 1 before); with
     // nothing on stdout, the failure itself is the reason.
-    const stdout = error instanceof IxCommandError ? error.stdout : "";
+    // A timeout's stdout is at most part of an answer.
+    const stdout = error instanceof IxCommandError && !error.timedOut ? error.stdout : "";
     if (!stdout.trim()) return { kind: "unassessed", path: filePath, reason: failureReason(error) };
     raw = stdout;
   }
@@ -299,8 +318,9 @@ function graphProblem(graph: unknown): string | null {
 
 /** One line on why ix produced nothing, for the verdict's note. */
 function failureReason(error: unknown): string {
-  const code = (error as { code?: unknown } | null)?.code;
+  const code = error instanceof IxCommandError ? error.exitCode : (error as { code?: unknown } | null)?.code;
   const message = error instanceof Error ? error.message : String(error);
+  // runIx checks the cwd before spawning, so ENOENT here is ix itself.
   if (code === "ENOENT" || /\bENOENT\b/.test(message)) return "ix is not installed (not on PATH)";
   const line = stripAnsi(message).split("\n").map((l) => l.trim()).find(Boolean);
   return line ? line.slice(0, 160) : "ix failed without saying why";
