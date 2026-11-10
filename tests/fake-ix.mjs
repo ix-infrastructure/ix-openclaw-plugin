@@ -37,7 +37,7 @@ import path from "node:path";
 
 const SCRIPT = `#!/bin/sh
 dir=$(dirname "$0")
-node "$dir/fake-ix-impl.mjs" "$@"
+exec node "$dir/fake-ix-impl.mjs" "$@"
 `;
 
 const IMPL = `
@@ -79,6 +79,17 @@ if (unreachable && command !== "--version" && command !== "text") {
   fail("\\u001b[31mError: fetch failed (bad port)\\u001b[39m");
 }
 
+// setHang(): graph reads never answer, as with a backend that accepts the
+// connection and then says nothing. The caller's timeout has to end it.
+let hang = false;
+try { statSync(path.join(dir, "hang")); hang = true; } catch {}
+if (hang && command !== "--version" && command !== "text") {
+  setTimeout(() => process.exit(0), 600000);
+} else {
+  main();
+}
+
+function main() {
 // setLookup(): a graph lookup of a canned target answers as ix does since
 // Ix#853 -- its record on stdout and a distinct exit (2 ambiguous, 3 not found,
 // 4 not mapped; or 1, as an older ix does). The llm format gets the record's
@@ -213,6 +224,7 @@ switch (command) {
   default:
     process.stdout.write("{}\\n");
 }
+}
 `;
 
 /**
@@ -332,6 +344,10 @@ export function installFakeIx() {
     /** Make graph reads fail with ix's workspace_not_mapped record. */
     setUnmapped() {
       writeFileSync(path.join(dir, "unmapped"), "");
+    },
+    /** Make graph reads hang, as ix does when the backend never answers. */
+    setHang() {
+      writeFileSync(path.join(dir, "hang"), "");
     },
     /** Make graph reads fail as ix does with its backend down: stderr only. */
     setUnreachable() {

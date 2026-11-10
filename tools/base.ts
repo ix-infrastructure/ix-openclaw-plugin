@@ -1,6 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { execFile } from "node:child_process";
+import { statSync } from "node:fs";
 
 export interface ToolContext {
   directory: string;
@@ -32,26 +33,41 @@ export class IxCommandError extends Error {
   /**
    * execFile's `error.code`: the exit status when ix ran and exited non-zero,
    * a string such as "ENOENT" when it could not be spawned, and undefined when
-   * it was killed (a timeout).
+   * it was killed (a timeout) or never started (its cwd does not exist).
    */
   readonly exitCode?: number | string;
+  /** True when ix was still running at the timeout and was killed. */
+  readonly timedOut: boolean;
 
-  constructor(message: string, stdout: string, exitCode?: number | string) {
+  constructor(message: string, stdout: string, exitCode?: number | string, timedOut = false) {
     super(message);
     this.name = "IxCommandError";
     this.stdout = stdout;
     this.exitCode = exitCode;
+    this.timedOut = timedOut;
   }
 }
 
 export function runIx(args: string[], options: RunIxOptions): Promise<string> {
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
+  // Node reports a missing cwd as `spawn ix ENOENT`, the same error as a
+  // missing ix, so check it first and say which one it is.
+  if (!isDirectory(options.cwd)) {
+    return Promise.reject(new IxCommandError(`working directory does not exist: ${options.cwd}`, ""));
+  }
+
   return new Promise((resolve, reject) => {
     execFile("ix", args, { cwd: options.cwd, timeout }, (error, stdout, stderr) => {
       if (error) {
-        const detail = stderr.trim() || error.message;
         const code = (error as { code?: unknown }).code;
+        // `killed` is execFile's own kill: the timeout, or a stdout past
+        // maxBuffer, which keeps its own error.
+        if ((error as { killed?: boolean }).killed && code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
+          reject(new IxCommandError(`ix did not answer within ${formatSeconds(timeout)} (timed out)`, stdout, undefined, true));
+          return;
+        }
+        const detail = stderr.trim() || error.message;
         const exitCode = typeof code === "number" || typeof code === "string" ? code : undefined;
         reject(new IxCommandError(detail, stdout, exitCode));
         return;
@@ -60,6 +76,19 @@ export function runIx(args: string[], options: RunIxOptions): Promise<string> {
       resolve(stdout);
     });
   });
+}
+
+function isDirectory(dir: string): boolean {
+  try {
+    return statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function formatSeconds(ms: number): string {
+  const seconds = ms / 1000;
+  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} s`;
 }
 
 export async function runIxJson<T>(
