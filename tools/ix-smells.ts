@@ -5,7 +5,7 @@ import { ixVersionAtLeast, tryLlm } from "../runtime/llm.ts";
 
 export const name = "ix-smells";
 export const description =
-  "Report code quality and architecture smells across the graph: orphan files, high coupling, low cohesion, dead code, and other structural issues. Use during architecture review or before a large refactor. By default it reads the smell results already stored in the graph and runs nothing. Set `detect: true` to run smell detection; that is a full analysis that writes a new set of smell results to the Ix backend, so use it only when asked to, or when no results are stored or they are out of date.";
+  "Report code quality and architecture smells across the graph: orphan files, high coupling, low cohesion, dead code, and other structural issues. Use during architecture review or before a large refactor. By default it reads the smell results already stored in the graph and runs nothing. Set `detect: true` to run smell detection; that is a full analysis that writes a new set of smell results to the Ix backend, so set it only when the user explicitly asks for detection to run. Never set it on your own, not even when no results are stored or they look out of date; report that and let the user decide.";
 
 export const parameters = {
   type: "object",
@@ -31,7 +31,7 @@ interface Params {
 }
 
 const UNAVAILABLE = "**ix unavailable.** Ensure the ix CLI is installed and `ix map` has been run.";
-const REDETECT_HINT = "Pass `detect: true` to re-run detection (it writes new results to the Ix backend).";
+const REDETECT_HINT = "If the user asks for fresh results, `detect: true` re-runs detection (it writes new results to the Ix backend).";
 
 // `ix smells --list` takes `--limit` from ix v0.14.0. Older releases (CI pins
 // v0.12.0) reject the unknown option, so it is sent only to a CLI known to
@@ -83,7 +83,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     "**No smell results are stored** in the graph (read with `ix smells --list`; nothing was run).",
     "Either smell detection has not been run on this graph, or its last run found nothing; ix does not say which.",
     "",
-    "Pass `detect: true` to run smell detection. It is slow and writes a new set of smell results to the Ix backend. If the graph is not mapped yet, run `ix map` first.",
+    "If the user asks for it, `detect: true` runs smell detection. It is slow and writes a new set of smell results to the Ix backend. If the graph is not mapped yet, run `ix map` first.",
   ].join("\n");
 }
 

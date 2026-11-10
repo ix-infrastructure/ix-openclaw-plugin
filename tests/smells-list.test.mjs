@@ -152,6 +152,11 @@ test("the tool schema offers `detect` and the description says it writes", () =>
   assert.match(ixSmells.parameters.properties.detect.description, /never runs detection unless/);
   assert.match(ixSmells.description, /detect/);
   assert.match(ixSmells.description, /writ|stores/i);
+  // Detection is a backend write: the description must not invite the model to
+  // run it on its own (e.g. "when no results are stored or out of date").
+  assert.match(ixSmells.description, /only when the user explicitly asks/);
+  assert.match(ixSmells.description, /Never set it on your own/);
+  assert.doesNotMatch(ixSmells.description, /or when no results are stored/);
 });
 
 test("detect: true keeps the llm fast path under the tool's header and source line", async () => {
