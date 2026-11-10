@@ -51,6 +51,9 @@ interface ExplainResult {
   facts?: { callerCount?: unknown; calleeCount?: unknown; stale?: unknown };
 }
 
+/** ix-query passes `kind` and `path` on to `ix locate`. */
+const QUERY_NARROWING = ["path", "kind"] as const;
+
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
 
@@ -62,14 +65,14 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   try {
     raw = await runIxJson<unknown>(locateArgs, { cwd: dir });
   } catch (error) {
-    return lookupFailureMessage(`ix-query: ${params.symbol}`, error);
+    return lookupFailureMessage(`ix-query: ${params.symbol}`, error, undefined, QUERY_NARROWING);
   }
 
   const located = readLocate(raw);
   if (!located) {
     // An older ix reports an ambiguous or unknown target on exit 0.
     const outcome = lookupRecord(JSON.stringify(raw));
-    if (outcome) return formatLookupOutcome(`ix-query: ${params.symbol}`, outcome);
+    if (outcome) return formatLookupOutcome(`ix-query: ${params.symbol}`, outcome, QUERY_NARROWING);
     // No entity, but locate fell back to a text search and found the name in source.
     const textMatches = readLocateTextMatches(raw);
     if (textMatches.length > 0) return formatTextMatches(params.symbol, textMatches);

@@ -56,7 +56,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     const parsed = await runIxJson<any>(args, { cwd: dir });
     hits = Array.isArray(parsed) ? parsed : parsed.hits ?? [];
   } catch (error) {
-    return lookupFailureMessage(`ix-locate: ${params.pattern}`, error, "**ix unavailable.** Ensure the ix CLI is installed and the graph is indexed.");
+    return lookupFailureMessage(`ix-locate: ${params.pattern}`, error, "**ix unavailable.** Ensure the ix CLI is installed and the graph is indexed.", ["path"]);
   }
 
   if (hits.length === 0) {
