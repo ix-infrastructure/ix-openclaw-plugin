@@ -1,7 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { formatLookupOutcome, LookupOutcome, lookupOutcome, runIxJson, ToolContext, toolDirectory } from "./base.ts";
-import { GraphEntity, readDependsTree, readResultRows, TreeNode } from "./cli-records.ts";
+import { GraphEntity, readDependsTree, readResultList, TreeNode } from "./cli-records.ts";
 
 export const name = "ix-neighbors";
 export const description =
@@ -86,13 +86,29 @@ async function fetchSection(
       return lines.join("\n") + "\n";
     }
 
-    const rows = readResultRows(parsed);
-    if (rows.length === 0) return `**${direction}:** none\n`;
+    const result = readResultList(parsed);
+    const { rows, unresolved } = result;
+    if (rows.length === 0 && unresolved === 0) return `**${direction}:** none\n`;
     const shown = rows.slice(0, limit);
-    const lines = [
-      `**${capitalize(direction)}** (${rows.length}${shown.length < rows.length ? `, showing ${shown.length}` : ""}):`,
-    ];
-    for (const row of shown) lines.push(`- ${formatEntity(row)}`);
+    // ix applied --limit already; summary.total is the count before it.
+    const listed = rows.length + unresolved;
+    const total = Math.max(result.total ?? listed, listed);
+    const truncated = result.truncated || total > shown.length + unresolved;
+    // With no graph edges ix answers callers from a text search: those rows
+    // are source lines that mention the symbol, not resolved callers.
+    const textSearch = result.source !== undefined && result.source !== "graph";
+    const heading = textSearch
+      ? `**${capitalize(direction)}: text matches** (${total}, from a text search, not the graph`
+      : `**${capitalize(direction)}** (${total}`;
+    const lines = [`${heading}${truncated ? `, showing ${shown.length}` : ""}):`];
+    for (const row of shown) lines.push(`- ${textSearch ? `\`${row.name}\`` : formatEntity(row)}`);
+    if (unresolved > 0) {
+      lines.push(`- ${unresolved} unresolved ${unresolved === 1 ? "reference" : "references"} (no graph entity)`);
+    }
+    if (truncated) {
+      const more = total - shown.length - unresolved;
+      lines.push(`- … ${more > 0 ? `${more} more` : "more"} — raise \`limit\` to see them`);
+    }
     return lines.join("\n") + "\n";
   } catch (error) {
     const outcome = lookupOutcome(error);

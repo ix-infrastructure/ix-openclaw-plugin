@@ -155,7 +155,9 @@ function formatStatus(status: StatusReading): string {
   }
   if (status.currentRev !== undefined) lines.push(`**Revision:** ${status.currentRev}`);
   if (status.lastIngestAt) lines.push(`**Last ingest:** ${status.lastIngestAt}`);
-  if (status.staleFiles !== undefined) {
+  // `ix status` prints staleFiles: 0 even with no ingest baseline, so the
+  // count only means "up to date" once a graph has been ingested.
+  if (ingested && status.staleFiles !== undefined) {
     lines.push(
       `**Freshness:** ${status.staleFiles > 0 ? `${status.staleFiles} stale file${status.staleFiles === 1 ? "" : "s"}` : "up to date"}`
     );

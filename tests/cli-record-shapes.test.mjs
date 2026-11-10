@@ -273,3 +273,132 @@ test("ix-stats lists edges by the predicate ix prints", withFake(async (ix) => {
   assert.match(out, /- CALLS: 1300/, out);
   assert.match(out, /- IMPORTS: 210/, out);
 }));
+
+// Review of #75: the answers below are the other shapes those commands print.
+
+test("ix-map lists the regions of a scope ix subsystems <scope> resolved", withFake(async (ix) => {
+  // `ix subsystems <scope> --format json` prints the scope as `target` and its
+  // regions under `children`, not `regions`.
+  ix.setRecord("subsystems", {
+    target: { label: "Tools", label_kind: "module", level: 1, files: 19, cohesion: 0.71, coupling: 0.22 },
+    parent: null,
+    summary: { files: 19, regions: 2 },
+    hierarchy: [{ label: "Tools", level: 1 }],
+    children: [
+      { label: "Graph tools", label_kind: "subsystem", level: 2, files: 12, children: 0, cohesion: 0.66, coupling: 0.3 },
+      { label: "Lookup", label_kind: "subsystem", level: 2, files: 7, children: 0, cohesion: 0.35, coupling: 0.2 },
+    ],
+  });
+  ix.setRecord("subsystems --list", SUBSYSTEM_SCORES);
+  const out = await ixMap.execute({ scope: "Tools", include_stats: false }, ctx);
+  assert.doesNotMatch(out, /none found/, out);
+  assert.match(out, /\*\*Subsystems in Tools\*\* \(2\):/, out);
+  assert.match(out, /\| Graph tools \| 12 \| 0\.66 \| 0\.30 \|/, out);
+  assert.match(out, /\| Lookup ⚠ \| 7 \| 0\.35 \| 0\.20 \|/, out);
+  assert.doesNotMatch(out, CRASH, out);
+  const scoped = ix.calls().find((call) => call.argv[0] === "subsystems" && !call.argv.includes("--list"));
+  assert.equal(scoped?.argv[1], "Tools");
+}));
+
+test("ix-map says a resolved scope has no sub-regions instead of asking for a map", withFake(async (ix) => {
+  ix.setRecord("subsystems", { target: { label: "Lookup", level: 2, files: 7 }, parent: { label: "Tools" }, children: [] });
+  const out = await ixMap.execute({ scope: "Lookup", include_stats: false }, ctx);
+  assert.match(out, /\*\*Subsystems in Lookup:\*\* none/, out);
+  assert.doesNotMatch(out, /Run `ix map`/, out);
+}));
+
+test("ix-neighbors reports summary.total and says when ix truncated the callers", withFake(async (ix) => {
+  ix.setRecord("callers", {
+    results: CALLERS.results,
+    resultSource: "graph",
+    summary: { total: 42, truncated: true },
+  });
+  const out = await ixNeighbors.execute({ symbol: "runIx", direction: "callers", limit: 2 }, ctx);
+  assert.match(out, /\*\*Callers\*\* \(42, showing 2\):/, out);
+  assert.match(out, /- … 40 more/, out);
+  assert.doesNotMatch(out, CRASH, out);
+}));
+
+test("ix-neighbors counts the caller rows ix could not resolve", withFake(async (ix) => {
+  ix.setRecord("callers", {
+    results: [
+      CALLERS.results[0],
+      { kind: "function", resolved: false, path: "tools/ix-map.ts", site: { line: 12 } },
+      { kind: "function", resolved: false, path: "tools/ix-map.ts", site: { line: 30 } },
+    ],
+    resultSource: "graph",
+    summary: { total: 3, truncated: false },
+  });
+  const out = await ixNeighbors.execute({ symbol: "runIx", direction: "callers" }, ctx);
+  assert.match(out, /\*\*Callers\*\* \(3\):/, out);
+  assert.match(out, /- `runIxJson` \(function\)/, out);
+  assert.match(out, /- 2 unresolved references/, out);
+  assert.doesNotMatch(out, /more/, out);
+  assert.doesNotMatch(out, CRASH, out);
+}));
+
+test("ix-neighbors shows only unresolved callers instead of none", withFake(async (ix) => {
+  ix.setRecord("callers", { results: [{ resolved: false, site: { line: 4 } }], resultSource: "graph" });
+  const out = await ixNeighbors.execute({ symbol: "runIx", direction: "callers" }, ctx);
+  assert.doesNotMatch(out, /\*\*callers:\*\* none/, out);
+  assert.match(out, /- 1 unresolved reference /, out);
+}));
+
+test("ix-neighbors labels the text-search fallback as text matches, not callers", withFake(async (ix) => {
+  ix.setRecord("callers", {
+    results: [
+      { name: "tools/base.ts:70", kind: "text-match", path: "tools/base.ts" },
+      { name: "README.md:12", kind: "text-match", path: "README.md" },
+    ],
+    resultSource: "text",
+    summary: { total: 2, truncated: false },
+  });
+  const out = await ixNeighbors.execute({ symbol: "runIx", direction: "callers" }, ctx);
+  assert.match(out, /\*\*Callers: text matches\*\* \(2, from a text search, not the graph\):/, out);
+  assert.match(out, /- `tools\/base\.ts:70`/, out);
+  assert.doesNotMatch(out, /\(text-match\)/, out);
+  assert.doesNotMatch(out, /\*\*Callers\*\* \(/, out);
+}));
+
+test("ix-ingest status shows no freshness for a graph that was never ingested", withFake(async (ix) => {
+  // ix status prints staleFiles: 0 with no ingest baseline.
+  ix.setRecord("status", { graphCompleted: false, mapCompleted: false, currentRev: 0, staleFiles: 0 });
+  const out = await ixIngest.execute({}, ctx);
+  assert.match(out, /\*\*Graph ingested:\*\* no/, out);
+  assert.doesNotMatch(out, /Freshness/, out);
+}));
+
+test("ix-ingest status still says up to date for an ingested graph with no stale files", withFake(async (ix) => {
+  ix.setRecord("status", { ...STATUS, staleFiles: 0 });
+  const out = await ixIngest.execute({}, ctx);
+  assert.match(out, /\*\*Freshness:\*\* up to date/, out);
+}));
+
+test("ix-query shows the source-text matches of a locate that fell back to text", withFake(async (ix) => {
+  ix.setRecord("locate", {
+    resolvedTarget: null,
+    resolutionMode: "text",
+    results: [
+      { name: "tools/base.ts:47", kind: "text-match", path: "tools/base.ts" },
+      { name: "docs/notes.md:3", kind: "text-match", path: "docs/notes.md" },
+    ],
+  });
+  const out = await ixQuery.execute({ symbol: "runIx" }, ctx);
+  assert.doesNotMatch(out, /No matches found/, out);
+  assert.match(out, /Ix found 2 source-text matches/, out);
+  assert.match(out, /- `tools\/base\.ts:47`/, out);
+  assert.match(out, /- `docs\/notes\.md:3`/, out);
+  assert.doesNotMatch(out, CRASH, out);
+  // A text hit is not an entity: explain is not asked about it.
+  assert.equal(ix.calls().some((call) => call.argv[0] === "explain"), false);
+}));
+
+test("ix-docs-tool's overview reads the target and child counts ix overview prints", withFake(async (ix) => {
+  ix.setRecord("locate", LOCATE);
+  ix.setRecord("overview", OVERVIEW);
+  const out = await ixDocsTool.execute({ target: "tools/base.ts", depth: "brief" }, ctx);
+  assert.match(out, /\*\*Kind:\*\* file/, out);
+  assert.match(out, /\*\*Path:\*\* tools\/base\.ts/, out);
+  assert.match(out, /\*\*Contains:\*\* 12 function, 1 class/, out);
+  assert.doesNotMatch(out, CRASH, out);
+}));

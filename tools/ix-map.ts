@@ -1,7 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
-import { readRegions, readStats, readSubsystemNames } from "./cli-records.ts";
+import { readRegions, readStats, readSubsystemNames, readSubsystemTarget } from "./cli-records.ts";
 
 export const name = "ix-map";
 export const description =
@@ -50,13 +50,17 @@ async function fetchSubsystems(dir: string, scope?: string): Promise<string> {
       scope ? ["subsystems", scope, "--format", "json"] : ["subsystems", "--format", "json"],
       { cwd: dir }
     );
+    // A scoped answer carries the scope's regions as `children` and the
+    // resolved region as `target`.
     const regions = readRegions(parsed);
+    const target = scope ? readSubsystemTarget(parsed) : undefined;
     if (regions.length === 0) {
+      if (target) return `**Subsystems in ${target}:** none — it has no sub-regions.`;
       return "**Subsystems:** none found. Run `ix map` to build the graph.";
     }
 
     const lines = [
-      `**Subsystems** (${regions.length}):`,
+      `**Subsystems${target ? ` in ${target}` : ""}** (${regions.length}):`,
       "",
       "| Subsystem | Files | Cohesion | Coupling |",
       "|-----------|-------|----------|----------|",

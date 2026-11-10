@@ -10,7 +10,7 @@ import {
   ToolContext,
   toolDirectory,
 } from "./base.ts";
-import { readKeyItemNames, readStats } from "./cli-records.ts";
+import { OverviewReading, readKeyItemNames, readOverview, readStats } from "./cli-records.ts";
 import { ImpactRecord, readImpact } from "./impact-record.ts";
 
 export const name = "ix-docs-tool";
@@ -106,8 +106,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
   if (overviewOut) {
     try {
-      const overview = JSON.parse(overviewOut) as any;
-      sections.push(formatOverview(overview));
+      sections.push(formatOverview(readOverview(JSON.parse(overviewOut))));
     } catch {
       // Ignore overview parse failures.
     }
@@ -168,15 +167,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   return sections.join("\n");
 }
 
-function formatOverview(overview: any): string {
+function formatOverview(overview: OverviewReading): string {
   const lines: string[] = [];
   if (overview.kind) lines.push(`**Kind:** ${overview.kind}`);
   if (overview.path) lines.push(`**Path:** ${overview.path}`);
-  if (overview.subsystem) lines.push(`**Subsystem:** ${overview.subsystem}`);
-  if (typeof overview.fileCount === "number") lines.push(`**Files:** ${overview.fileCount}`);
-  if (typeof overview.memberCount === "number") lines.push(`**Members:** ${overview.memberCount}`);
-  const summary = overview.summary ?? overview.purpose;
-  if (summary) lines.push("", summary);
+  if (overview.childrenByKind.length > 0) {
+    lines.push(`**Contains:** ${overview.childrenByKind.map(({ kind, count }) => `${count} ${kind}`).join(", ")}`);
+  }
   return lines.join("\n") + "\n";
 }
 

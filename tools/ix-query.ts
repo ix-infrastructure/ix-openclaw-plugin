@@ -8,7 +8,7 @@ import {
   ToolContext,
   toolDirectory,
 } from "./base.ts";
-import { LocateReading, readLocate } from "./cli-records.ts";
+import { LocateReading, readLocate, readLocateTextMatches } from "./cli-records.ts";
 
 export const name = "ix-query";
 export const description =
@@ -70,6 +70,9 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     // An older ix reports an ambiguous or unknown target on exit 0.
     const outcome = lookupRecord(JSON.stringify(raw));
     if (outcome) return formatLookupOutcome(`ix-query: ${params.symbol}`, outcome);
+    // No entity, but locate fell back to a text search and found the name in source.
+    const textMatches = readLocateTextMatches(raw);
+    if (textMatches.length > 0) return formatTextMatches(params.symbol, textMatches);
     return [
       `## ix-query: ${params.symbol}`,
       "",
@@ -84,6 +87,20 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     // Show what locate resolved without the explain facts.
   }
   return formatQuery(params.symbol, located, explain);
+}
+
+const MAX_TEXT_MATCHES = 10;
+
+function formatTextMatches(symbol: string, matches: string[]): string {
+  const lines = [
+    `## ix-query: ${symbol}`,
+    "",
+    `**Not a graph entity.** Ix found ${matches.length} source-text match${matches.length === 1 ? "" : "es"}:`,
+  ];
+  for (const match of matches.slice(0, MAX_TEXT_MATCHES)) lines.push(`- \`${match}\``);
+  if (matches.length > MAX_TEXT_MATCHES) lines.push(`- … ${matches.length - MAX_TEXT_MATCHES} more`);
+  lines.push("", "These are text hits, not resolved symbols. If the code is new, run `ix map` to index it.");
+  return lines.join("\n");
 }
 
 function formatQuery(symbol: string, located: LocateReading, explain: ExplainResult | null): string {
