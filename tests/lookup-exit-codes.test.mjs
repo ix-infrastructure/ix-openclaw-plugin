@@ -16,7 +16,7 @@ import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import { impactRecord, installFakeIx } from "./fake-ix.mjs";
-import { IxCommandError, lookupOutcome, runIx } from "../dist/tools/base.js";
+import { IxCommandError, lookupOutcome, lookupOutcomeLines, runIx } from "../dist/tools/base.js";
 import { resetLlmVersionCache } from "../dist/runtime/llm.js";
 import * as ixQuery from "../dist/tools/ix-query.js";
 import * as ixExplain from "../dist/tools/ix-explain.js";
@@ -281,4 +281,71 @@ test("ix-decide keeps the required action ahead of the candidates", withFake(asy
   assert.match(out, /Verdict:\*\* REVIEW/, out);
   assert.ok(out.indexOf("**Required action:**") < out.indexOf("**Not resolved by Ix:**"), out);
   assert.match(out, /`src\/a\.ts` — AMBIGUOUS, 2 candidates/, out);
+}));
+
+// How ix numbers `--pick` is ix's decision: it depends on its ranking, on the
+// --kind/--path filters and on how many candidates it kept. A candidate that
+// arrives without a `pick` gets no number; the agent narrows by path or kind.
+const UNNUMBERED = [
+  { name: "parse", kind: "function", path: "src/config/parse.ts", line: 12 },
+  { name: "parse", kind: "method", path: "src/json/reader.ts", line: 40 },
+];
+
+function assertNoGuessedPick(out, label) {
+  assert.doesNotMatch(out, /--pick\s*\d/, `${label} must not invent --pick numbers:\n${out}`);
+  assert.doesNotMatch(out, /Retry with `--pick <n>`/, `${label} must not offer --pick:\n${out}`);
+  assert.ok(out.includes("src/config/parse.ts:12") && out.includes("src/json/reader.ts:40"), `${label}:\n${out}`);
+  assert.match(out, /\(function\)/, `${label} must show the kind:\n${out}`);
+  assert.match(out, /\(method\)/, `${label} must show the kind:\n${out}`);
+  assert.match(out, /--path/, `${label} must offer --path:\n${out}`);
+  assert.match(out, /--kind/, `${label} must offer --kind:\n${out}`);
+}
+
+test("ambiguous candidates without a pick field get no --pick number", () => {
+  const out = lookupOutcomeLines({ kind: "ambiguous", candidates: UNNUMBERED }).join("\n");
+  assert.match(out, /Ambiguous target/, out);
+  assertNoGuessedPick(out, "lookupOutcomeLines");
+});
+
+test("only candidates ix numbered show --pick, with ix's own number", () => {
+  const out = lookupOutcomeLines({
+    kind: "ambiguous",
+    candidates: [
+      { name: "parse", kind: "function", path: "src/config/parse.ts", line: 12, pick: 3 },
+      { name: "parse", kind: "method", path: "src/json/reader.ts", line: 40 },
+    ],
+  }).join("\n");
+  assert.ok(out.includes("`--pick 3` `parse` (function)"), out);
+  assert.equal(out.match(/--pick \d/g)?.length, 1, out);
+  assert.doesNotMatch(out, /--pick [12]\b/, out);
+  assert.match(out, /- `parse` \(method\) — src\/json\/reader\.ts:40/, out);
+  assert.match(out, /--pick <n>/, out);
+  assert.match(out, /--kind/, out);
+});
+
+test("a cut-down list of unnumbered candidates still invents no --pick", () => {
+  const many = Array.from({ length: 14 }, (_, i) => ({ name: "parse", kind: "function", path: `src/m${i}/parse.ts` }));
+  const out = lookupOutcomeLines({ kind: "ambiguous", candidates: many }).join("\n");
+  assert.doesNotMatch(out, /--pick\s*\d/, out);
+  assert.match(out, /… 4 more/, out);
+  assert.match(out, /--path/, out);
+});
+
+for (const [toolName, tool, target, params] of TOOLS) {
+  test(`${toolName}: exit 2 without pick fields lists the candidates without --pick numbers`, withFake(async (ix) => {
+    const body = toolName === "ix-query"
+      ? { code: "ambiguous_target", candidates: UNNUMBERED }
+      : { error: "ambiguous_target", message: '"parse" matches 2 entities.', candidates: UNNUMBERED };
+    ix.setLookup({ [target]: { exit: 2, body } });
+    const out = await tool.execute(params, { directory: ix.dir });
+    assert.doesNotMatch(out, /ix unavailable/i, `${toolName}:\n${out}`);
+    assertNoGuessedPick(out, toolName);
+  }));
+}
+
+test("ix-decide shows unnumbered candidates without --pick numbers", withFake(async (ix) => {
+  ix.setLookup({ "src/a.ts": { exit: 2, body: { error: "ambiguous_target", candidates: UNNUMBERED } } });
+  const out = await ixDecide.execute({ touched_paths: ["src/a.ts"] }, { directory: ix.dir });
+  assert.match(out, /Verdict:\*\* ALLOW/, out);
+  assertNoGuessedPick(out, "ix-decide");
 }));

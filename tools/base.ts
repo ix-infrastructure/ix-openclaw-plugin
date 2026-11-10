@@ -230,11 +230,21 @@ export function lookupOutcomeLines(outcome: LookupOutcome): string[] {
   if (outcome.kind === "ambiguous") {
     const count = outcome.candidates.length;
     lines.push(`**Ambiguous target.** Ix matched ${count > 0 ? `${count} entities` : "more than one entity"}${count > 0 ? ":" : "."}`);
-    outcome.candidates.slice(0, MAX_CANDIDATES).forEach((candidate, index) => {
-      lines.push(`- \`--pick ${candidate.pick ?? index + 1}\` ${formatLookupEntity(candidate)}`);
-    });
+    // `--pick` numbers are ix's: they follow its ranking, its --kind/--path
+    // filters and how many candidates it kept. Show one only when ix sent it;
+    // a number guessed from list position can pick a different entity.
+    const shown = outcome.candidates.slice(0, MAX_CANDIDATES);
+    for (const candidate of shown) {
+      const pick = typeof candidate.pick === "number" ? `\`--pick ${candidate.pick}\` ` : "";
+      lines.push(`- ${pick}${formatLookupEntity(candidate)}`);
+    }
     if (count > MAX_CANDIDATES) lines.push(`- … ${count - MAX_CANDIDATES} more`);
-    lines.push("", "Retry with `--pick <n>` to choose one, or narrow with `--path <dir>`.");
+    lines.push(
+      "",
+      shown.some((candidate) => typeof candidate.pick === "number")
+        ? "Retry with `--pick <n>` as numbered above, or narrow with `--path <dir>` or `--kind <kind>`."
+        : "Narrow the lookup with `--path <dir>` or `--kind <kind>` to choose one."
+    );
   } else if (outcome.kind === "not_found") {
     lines.push(`**Not found in the graph.**${outcome.message ? ` ${outcome.message}` : ""}`);
     if (outcome.suggestions.length > 0) {
