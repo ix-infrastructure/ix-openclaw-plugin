@@ -10,6 +10,7 @@ import {
   ToolContext,
   toolDirectory,
 } from "./base.ts";
+import { readKeyItemNames, readStats } from "./cli-records.ts";
 import { ImpactRecord, readImpact } from "./impact-record.ts";
 
 export const name = "ix-docs-tool";
@@ -93,11 +94,10 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const sections = [`## Context: ${params.target}`, ""];
   if (statsOut) {
     try {
-      const stats = JSON.parse(statsOut) as any;
+      const stats = readStats(JSON.parse(statsOut));
       const parts: string[] = [];
       if (stats.files) parts.push(`${stats.files} files`);
       if (stats.nodes) parts.push(`${stats.nodes} nodes`);
-      if (stats.language) parts.push(stats.language);
       if (parts.length > 0) sections.push(`_${parts.join(" · ")}_`, "");
     } catch {
       // Ignore stats parse failures.
@@ -118,12 +118,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   let components: string[] = [];
   if (overviewOut) {
     try {
-      const overview = JSON.parse(overviewOut) as any;
-      const members = overview.members ?? overview.components ?? [];
-      components = members
-        .slice(0, depth === "full" ? 8 : 5)
-        .map((member: { name?: string }) => member.name ?? "")
-        .filter(Boolean);
+      components = readKeyItemNames(JSON.parse(overviewOut)).slice(0, depth === "full" ? 8 : 5);
     } catch {
       // Ignore component expansion failures.
     }
@@ -138,9 +133,13 @@ export async function execute(params: Params, context: ToolContext): Promise<str
       const explain = explains[index];
       if (!explain) continue;
       try {
+        // `ix explain` nests the counts under `facts` and the role under
+        // `role.role`, as ix-explain reads them.
         const parsed = JSON.parse(explain) as any;
+        const callers = parsed?.facts?.callerCount;
+        const role = parsed?.role?.role;
         componentLines.push(
-          `- \`${components[index]}\`${typeof parsed.callerCount === "number" ? ` (${parsed.callerCount} callers)` : ""}${parsed.role ? ` — ${parsed.role}` : ""}`
+          `- \`${components[index]}\`${typeof callers === "number" ? ` (${callers} callers)` : ""}${typeof role === "string" && role ? ` — ${role}` : ""}`
         );
       } catch {
         componentLines.push(`- \`${components[index]}\``);

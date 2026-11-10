@@ -38,7 +38,8 @@ export async function execute(
 
   const totalNodes = raw.nodes?.total ?? 0;
   const totalEdges = raw.edges?.total ?? 0;
-  const fileCount = raw.files ?? countByKind(raw.nodes?.byKind, "file");
+  // ix prints no file total: files are the `file` entry of nodes.byKind.
+  const fileCount = countByKind(raw.nodes?.byKind, "file");
   if (totalNodes === 0) {
     return ["## ix-stats", "", "**Graph is empty.** Run `ix map` to index the codebase."].join("\n");
   }
@@ -62,7 +63,7 @@ export async function execute(
   if (Array.isArray(raw.edges?.byPredicate) && raw.edges.byPredicate.length > 0) {
     lines.push("", "**Edges by type:**");
     for (const entry of raw.edges.byPredicate) {
-      if (entry.kind && entry.count > 0) lines.push(`- ${entry.kind}: ${entry.count}`);
+      if (entry.predicate && entry.count > 0) lines.push(`- ${entry.predicate}: ${entry.count}`);
     }
   }
 

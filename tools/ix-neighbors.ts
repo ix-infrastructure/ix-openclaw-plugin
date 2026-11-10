@@ -1,6 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { formatLookupOutcome, LookupOutcome, lookupOutcome, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { GraphEntity, readDependsTree, readResultRows, TreeNode } from "./cli-records.ts";
 
 export const name = "ix-neighbors";
 export const description =
@@ -69,30 +70,55 @@ async function fetchSection(
   depth?: number
 ): Promise<string | LookupOutcome> {
   try {
-    const parsed = await runIxJson<{ items?: any[]; count?: number }>(
+    const parsed = await runIxJson<unknown>(
       direction === "depends" && depth !== undefined
         ? ["depends", symbol, "--depth", String(depth), "--format", "json"]
         : [direction, symbol, "--limit", String(limit), "--format", "json"],
       { cwd: dir }
     );
-    const items = parsed.items ?? [];
-    if (items.length === 0) return `**${direction}:** none\n`;
 
-    const lines = [`**${capitalize(direction)}** (${parsed.count ?? items.length} total, showing ${items.length}):`];
-    for (const item of items) {
-      const parts = [`\`${item.name ?? "?"}\``];
-      if (item.kind) parts.push(`(${item.kind})`);
-      if (item.subsystem) parts.push(`[${item.subsystem}]`);
-      if (item.file) parts.push(`— ${item.file}`);
-      lines.push(`- ${parts.join(" ")}`);
+    // `ix depends` answers with a tree, the list lookups with `results` rows.
+    if (direction === "depends") {
+      const tree = readDependsTree(parsed);
+      if (tree.length === 0) return `**${direction}:** none\n`;
+      const lines = [`**${capitalize(direction)}**${depth !== undefined ? ` (depth ${depth})` : ""}:`];
+      renderTree(tree, lines, "", limit);
+      return lines.join("\n") + "\n";
     }
 
+    const rows = readResultRows(parsed);
+    if (rows.length === 0) return `**${direction}:** none\n`;
+    const shown = rows.slice(0, limit);
+    const lines = [
+      `**${capitalize(direction)}** (${rows.length}${shown.length < rows.length ? `, showing ${shown.length}` : ""}):`,
+    ];
+    for (const row of shown) lines.push(`- ${formatEntity(row)}`);
     return lines.join("\n") + "\n";
   } catch (error) {
     const outcome = lookupOutcome(error);
     if (outcome) return outcome;
     return `**${direction}:** unavailable — ${getErrorMessage(error)}\n`;
   }
+}
+
+function formatEntity(entity: GraphEntity): string {
+  return `\`${entity.name}\`${entity.kind ? ` (${entity.kind})` : ""}${entity.path ? ` — ${entity.path}` : ""}`;
+}
+
+/**
+ * The tree, indented two spaces a level, at most `budget` entity lines and
+ * then one `…`. Returns the budget left; -1 once it ran out.
+ */
+function renderTree(nodes: TreeNode[], lines: string[], indent: string, budget: number): number {
+  for (const node of nodes) {
+    if (budget <= 0) {
+      if (budget === 0) lines.push(`${indent}- …`);
+      return -1;
+    }
+    lines.push(`${indent}- ${formatEntity(node)}`);
+    budget = renderTree(node.children, lines, indent + "  ", budget - 1);
+  }
+  return budget;
 }
 
 function capitalize(value: string): string {
