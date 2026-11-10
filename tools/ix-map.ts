@@ -1,6 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { readRegions, readStats, readSubsystemNames, readSubsystemTarget } from "./cli-records.ts";
 
 export const name = "ix-map";
 export const description =
@@ -45,33 +46,34 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
 async function fetchSubsystems(dir: string, scope?: string): Promise<string> {
   try {
-    const parsed = await runIxJson<any>(
+    const parsed = await runIxJson<unknown>(
       scope ? ["subsystems", scope, "--format", "json"] : ["subsystems", "--format", "json"],
       { cwd: dir }
     );
-    const systems = parsed.systems ?? parsed.regions ?? parsed.subsystems ?? [];
-    if (!Array.isArray(systems) || systems.length === 0) {
+    // A scoped answer carries the scope's regions as `children` and the
+    // resolved region as `target`.
+    const regions = readRegions(parsed);
+    const target = scope ? readSubsystemTarget(parsed) : undefined;
+    if (regions.length === 0) {
+      if (target) return `**Subsystems in ${target}:** none — it has no sub-regions.`;
       return "**Subsystems:** none found. Run `ix map` to build the graph.";
     }
 
     const lines = [
-      `**Subsystems** (${systems.length}):`,
+      `**Subsystems${target ? ` in ${target}` : ""}** (${regions.length}):`,
       "",
-      "| Subsystem | Path | Files | Cohesion | Coupling |",
-      "|-----------|------|-------|----------|----------|",
+      "| Subsystem | Files | Cohesion | Coupling |",
+      "|-----------|-------|----------|----------|",
     ];
 
-    for (const system of systems) {
-      const cohesion = typeof system.cohesion === "number" ? system.cohesion.toFixed(2) : "—";
-      const coupling =
-        typeof system.externalCoupling === "number" ? system.externalCoupling.toFixed(2) : "—";
+    for (const region of regions) {
       const flag =
-        (typeof system.cohesion === "number" && system.cohesion < 0.4) ||
-        (typeof system.externalCoupling === "number" && system.externalCoupling > 0.5)
+        (region.cohesion !== undefined && region.cohesion < 0.4) ||
+        (region.coupling !== undefined && region.coupling > 0.5)
           ? " ⚠"
           : "";
       lines.push(
-        `| ${system.name ?? "unknown"}${flag} | ${system.path ?? "—"} | ${system.fileCount ?? "—"} | ${cohesion} | ${coupling} |`
+        `| ${region.label}${flag} | ${region.files ?? "—"} | ${region.cohesion?.toFixed(2) ?? "—"} | ${region.coupling?.toFixed(2) ?? "—"} |`
       );
     }
 
@@ -83,11 +85,8 @@ async function fetchSubsystems(dir: string, scope?: string): Promise<string> {
 
 async function fetchSubsystemList(dir: string): Promise<string> {
   try {
-    const parsed = await runIxJson<{ names?: string[]; list?: string[] }>(
-      ["subsystems", "--list", "--format", "json"],
-      { cwd: dir }
-    );
-    const names = parsed.names ?? parsed.list ?? [];
+    const parsed = await runIxJson<unknown>(["subsystems", "--list", "--format", "json"], { cwd: dir });
+    const names = readSubsystemNames(parsed);
     return names.length > 0 ? `**Subsystem names:** ${names.join(", ")}` : "";
   } catch {
     return "";
@@ -96,12 +95,11 @@ async function fetchSubsystemList(dir: string): Promise<string> {
 
 async function fetchStats(dir: string): Promise<string> {
   try {
-    const parsed = await runIxJson<any>(["stats", "--format", "json"], { cwd: dir });
+    const stats = readStats(await runIxJson<unknown>(["stats", "--format", "json"], { cwd: dir }));
     const parts: string[] = [];
-    if (parsed.files !== undefined) parts.push(`${parsed.files} files`);
-    if (parsed.nodes !== undefined) parts.push(`${parsed.nodes} nodes`);
-    if (parsed.edges !== undefined) parts.push(`${parsed.edges} edges`);
-    if (parsed.language) parts.push(`language: ${parsed.language}`);
+    if (stats.files !== undefined) parts.push(`${stats.files} files`);
+    if (stats.nodes !== undefined) parts.push(`${stats.nodes} nodes`);
+    if (stats.edges !== undefined) parts.push(`${stats.edges} edges`);
     return parts.length > 0 ? `**Codebase:** ${parts.join(" · ")}` : "";
   } catch {
     return "";

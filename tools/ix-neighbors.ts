@@ -1,6 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import { formatLookupOutcome, LookupOutcome, lookupOutcome, runIxJson, ToolContext, toolDirectory } from "./base.ts";
+import { GraphEntity, readDependsTree, readResultList, TreeNode } from "./cli-records.ts";
 
 export const name = "ix-neighbors";
 export const description =
@@ -69,30 +70,71 @@ async function fetchSection(
   depth?: number
 ): Promise<string | LookupOutcome> {
   try {
-    const parsed = await runIxJson<{ items?: any[]; count?: number }>(
+    const parsed = await runIxJson<unknown>(
       direction === "depends" && depth !== undefined
         ? ["depends", symbol, "--depth", String(depth), "--format", "json"]
         : [direction, symbol, "--limit", String(limit), "--format", "json"],
       { cwd: dir }
     );
-    const items = parsed.items ?? [];
-    if (items.length === 0) return `**${direction}:** none\n`;
 
-    const lines = [`**${capitalize(direction)}** (${parsed.count ?? items.length} total, showing ${items.length}):`];
-    for (const item of items) {
-      const parts = [`\`${item.name ?? "?"}\``];
-      if (item.kind) parts.push(`(${item.kind})`);
-      if (item.subsystem) parts.push(`[${item.subsystem}]`);
-      if (item.file) parts.push(`— ${item.file}`);
-      lines.push(`- ${parts.join(" ")}`);
+    // `ix depends` answers with a tree, the list lookups with `results` rows.
+    if (direction === "depends") {
+      const tree = readDependsTree(parsed);
+      if (tree.length === 0) return `**${direction}:** none\n`;
+      const lines = [`**${capitalize(direction)}**${depth !== undefined ? ` (depth ${depth})` : ""}:`];
+      renderTree(tree, lines, "", limit);
+      return lines.join("\n") + "\n";
     }
 
+    const result = readResultList(parsed);
+    const { rows, unresolved } = result;
+    if (rows.length === 0 && unresolved === 0) return `**${direction}:** none\n`;
+    const shown = rows.slice(0, limit);
+    // ix applied --limit already; summary.total is the count before it.
+    const listed = rows.length + unresolved;
+    const total = Math.max(result.total ?? listed, listed);
+    const truncated = result.truncated || total > shown.length + unresolved;
+    // With no graph edges ix answers callers from a text search: those rows
+    // are source lines that mention the symbol, not resolved callers.
+    const textSearch = result.source !== undefined && result.source !== "graph";
+    const heading = textSearch
+      ? `**${capitalize(direction)}: text matches** (${total}, from a text search, not the graph`
+      : `**${capitalize(direction)}** (${total}`;
+    const lines = [`${heading}${truncated ? `, showing ${shown.length}` : ""}):`];
+    for (const row of shown) lines.push(`- ${textSearch ? `\`${row.name}\`` : formatEntity(row)}`);
+    if (unresolved > 0) {
+      lines.push(`- ${unresolved} unresolved ${unresolved === 1 ? "reference" : "references"} (no graph entity)`);
+    }
+    if (truncated) {
+      const more = total - shown.length - unresolved;
+      lines.push(`- … ${more > 0 ? `${more} more` : "more"} — raise \`limit\` to see them`);
+    }
     return lines.join("\n") + "\n";
   } catch (error) {
     const outcome = lookupOutcome(error);
     if (outcome) return outcome;
     return `**${direction}:** unavailable — ${getErrorMessage(error)}\n`;
   }
+}
+
+function formatEntity(entity: GraphEntity): string {
+  return `\`${entity.name}\`${entity.kind ? ` (${entity.kind})` : ""}${entity.path ? ` — ${entity.path}` : ""}`;
+}
+
+/**
+ * The tree, indented two spaces a level, at most `budget` entity lines and
+ * then one `…`. Returns the budget left; -1 once it ran out.
+ */
+function renderTree(nodes: TreeNode[], lines: string[], indent: string, budget: number): number {
+  for (const node of nodes) {
+    if (budget <= 0) {
+      if (budget === 0) lines.push(`${indent}- …`);
+      return -1;
+    }
+    lines.push(`${indent}- ${formatEntity(node)}`);
+    budget = renderTree(node.children, lines, indent + "  ", budget - 1);
+  }
+  return budget;
 }
 
 function capitalize(value: string): string {

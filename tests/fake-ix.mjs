@@ -23,6 +23,8 @@
  * never sends.
  * `setLookup()` makes a graph lookup of a given target answer with a record
  * and an Ix#853 exit code (2 ambiguous, 3 not found, 4 not mapped, or 1).
+ * `setRecord()` gives any command a canned `--format json` record in the
+ * CLI's shape (tests/cli-record-shapes.test.mjs).
  * `ix briefing` answers from `briefing.txt` (text|json only, like @ix/pro) and
  * fails as if Ix Pro were absent when no test set one.
  *
@@ -96,6 +98,23 @@ if (lookup && command !== "--version") {
     process.stdout.write(JSON.stringify(lookup.body) + "\\n");
   }
   process.exit(lookup.exit);
+}
+
+// setRecord(): a canned \`--format json\` record for a command, keyed
+// \`<command>\` or \`<command> --list\`. The llm and text formats answer with
+// nothing, so a tool that tries llm first falls through to the JSON record.
+let records = {};
+try { records = JSON.parse(readFileSync(path.join(dir, "records.json"), "utf8")); } catch {}
+const recordKey = command + (has("--list") ? " --list" : "");
+if (Object.prototype.hasOwnProperty.call(records, recordKey)) {
+  if (command === "locate" && has("--limit")) fail("error: unknown option '--limit'");
+  const formatAt = rest.indexOf("--format");
+  if (formatAt >= 0 && rest[formatAt + 1] === "json") {
+    const record = records[recordKey];
+    // A string is printed as is: the way to fake a non-JSON answer.
+    process.stdout.write((typeof record === "string" ? record : JSON.stringify(record)) + "\\n");
+  }
+  process.exit(0);
 }
 
 const DEFAULT_IMPACT = ${JSON.stringify(impactRecord())};
@@ -286,6 +305,18 @@ export function installFakeIx() {
     setSubsystems({ llm, json } = {}) {
       if (llm !== undefined) writeFileSync(path.join(dir, "subsystems.llm"), llm);
       if (json !== undefined) writeFileSync(path.join(dir, "subsystems.json"), JSON.stringify(json) + "\n");
+    },
+    /**
+     * Answer `ix <key> --format json` with `record` (exit 0), where `key` is
+     * a command (`"locate"`) or a command with `--list` (`"subsystems --list"`).
+     * Other formats of that command print nothing. A string record is
+     * printed as is, for an answer that is not JSON.
+     */
+    setRecord(key, record) {
+      const file = path.join(dir, "records.json");
+      const records = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
+      records[key] = record;
+      writeFileSync(file, JSON.stringify(records));
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {

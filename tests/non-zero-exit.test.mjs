@@ -62,13 +62,14 @@ test("ix_docs keeps the JSON body when ix exits non-zero", async () => {
   const stub = withStubIx(`
 case "$1" in
   locate)   echo '{"resolvedTarget":null,"diagnostics":["No graph entity found."]}'; exit 1 ;;
-  overview) echo '{"summary":"Overview body retained."}'; exit 1 ;;
+  overview) echo '{"resolvedTarget":{"kind":"class","name":"SomeSymbol","path":"src/retained.ts"},"childrenByKind":{"method":3}}'; exit 1 ;;
   *)        echo '{}'; exit 1 ;;
 esac`);
   try {
     const output = await ixDocsTool.execute({ target: "SomeSymbol", depth: "brief" }, { directory: stub.dir });
     assert.ok(!output.includes("Not found in graph"), `fell back to the generic miss:\n${output}`);
-    assert.match(output, /Overview body retained\./);
+    assert.match(output, /\*\*Path:\*\* src\/retained\.ts/);
+    assert.match(output, /\*\*Contains:\*\* 3 method/);
   } finally {
     stub.restore();
   }

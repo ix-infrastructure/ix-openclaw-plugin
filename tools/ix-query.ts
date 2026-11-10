@@ -1,11 +1,14 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 import {
+  formatLookupOutcome,
   lookupFailureMessage,
+  lookupRecord,
   runIxJson,
   ToolContext,
   toolDirectory,
 } from "./base.ts";
+import { LocateReading, readLocate, readLocateTextMatches } from "./cli-records.ts";
 
 export const name = "ix-query";
 export const description =
@@ -37,21 +40,15 @@ interface Params {
   path?: string;
 }
 
-interface LocateResult {
-  results?: Array<{ name: string; kind: string; file: string }>;
-}
-
+/**
+ * The parts of `ix explain --format json` this tool shows, in the shape
+ * ix-explain reads: `role` and `importance` are objects, the counts sit
+ * under `facts`.
+ */
 interface ExplainResult {
-  name?: string;
-  kind?: string;
-  file?: string;
-  role?: string;
-  importance?: string;
-  callerCount?: number;
-  calleeCount?: number;
-  confidence?: number;
-  subsystem?: string;
-  summary?: string;
+  role?: { role?: unknown; confidence?: unknown };
+  importance?: { level?: unknown };
+  facts?: { callerCount?: unknown; calleeCount?: unknown; stale?: unknown };
 }
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
@@ -61,15 +58,21 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   if (params.kind) locateArgs.push("--kind", params.kind);
   if (params.path) locateArgs.push("--path", params.path);
 
-  let locate: LocateResult;
+  let raw: unknown;
   try {
-    locate = await runIxJson<LocateResult>(locateArgs, { cwd: dir });
+    raw = await runIxJson<unknown>(locateArgs, { cwd: dir });
   } catch (error) {
     return lookupFailureMessage(`ix-query: ${params.symbol}`, error);
   }
 
-  const results = locate.results ?? [];
-  if (results.length === 0) {
+  const located = readLocate(raw);
+  if (!located) {
+    // An older ix reports an ambiguous or unknown target on exit 0.
+    const outcome = lookupRecord(JSON.stringify(raw));
+    if (outcome) return formatLookupOutcome(`ix-query: ${params.symbol}`, outcome);
+    // No entity, but locate fell back to a text search and found the name in source.
+    const textMatches = readLocateTextMatches(raw);
+    if (textMatches.length > 0) return formatTextMatches(params.symbol, textMatches);
     return [
       `## ix-query: ${params.symbol}`,
       "",
@@ -77,56 +80,52 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     ].join("\n");
   }
 
+  let explain: ExplainResult | null = null;
   try {
-    const explain = await runIxJson<ExplainResult>(
-      ["explain", results[0].name, "--format", "json"],
-      { cwd: dir }
-    );
-    return formatQuery(params.symbol, results, explain);
+    explain = await runIxJson<ExplainResult>(["explain", located.target.name, "--format", "json"], { cwd: dir });
   } catch {
-    return formatLocateOnly(params.symbol, results);
+    // Show what locate resolved without the explain facts.
   }
+  return formatQuery(params.symbol, located, explain);
 }
 
-function formatLocateOnly(
-  symbol: string,
-  results: Array<{ name: string; kind: string; file: string }>
-): string {
-  const lines = [`## ix-query: ${symbol}`, "", "**Matches found:**"];
-  for (const result of results.slice(0, 5)) {
-    lines.push(`- \`${result.name}\` (${result.kind}) — ${result.file}`);
-  }
-  lines.push("", "_explain data unavailable — run `ix map` to refresh graph_");
-  return lines.join("\n");
-}
+const MAX_TEXT_MATCHES = 10;
 
-function formatQuery(
-  symbol: string,
-  results: Array<{ name: string; kind: string; file: string }>,
-  explain: ExplainResult
-): string {
-  const primary = results[0];
-  const confidence = explain.confidence ?? 1;
+function formatTextMatches(symbol: string, matches: string[]): string {
   const lines = [
     `## ix-query: ${symbol}`,
     "",
-    `**Name:** \`${explain.name ?? primary.name}\``,
-    `**Kind:** ${explain.kind ?? primary.kind}`,
-    `**File:** ${explain.file ?? primary.file}`,
+    `**Not a graph entity.** Ix found ${matches.length} source-text match${matches.length === 1 ? "" : "es"}:`,
   ];
+  for (const match of matches.slice(0, MAX_TEXT_MATCHES)) lines.push(`- \`${match}\``);
+  if (matches.length > MAX_TEXT_MATCHES) lines.push(`- … ${matches.length - MAX_TEXT_MATCHES} more`);
+  lines.push("", "These are text hits, not resolved symbols. If the code is new, run `ix map` to index it.");
+  return lines.join("\n");
+}
 
-  if (explain.subsystem) lines.push(`**Subsystem:** ${explain.subsystem}`);
-  if (explain.role) lines.push(`**Role:** ${explain.role}`);
-  if (explain.importance) lines.push(`**Importance:** ${explain.importance}`);
-  if (typeof explain.callerCount === "number") lines.push(`**Callers:** ${explain.callerCount}`);
-  if (typeof explain.calleeCount === "number") lines.push(`**Callees:** ${explain.calleeCount}`);
-  if (explain.summary) lines.push("", explain.summary);
-  if (confidence < 0.7) {
-    lines.push("", "⚠ [uncertain — confidence < 0.7, run `ix map` to refresh]");
-  }
-  if (results.length > 1) {
-    lines.push("", `_${results.length - 1} other match(es) — use --kind or --path to narrow_`);
-  }
+function formatQuery(symbol: string, located: LocateReading, explain: ExplainResult | null): string {
+  const { target, line, container, systemPath } = located;
+  const lines = [`## ix-query: ${symbol}`, "", `**Name:** \`${target.name}\``];
+  if (target.kind) lines.push(`**Kind:** ${target.kind}`);
+  if (target.path) lines.push(`**Path:** ${target.path}${line !== undefined ? `:${line}` : ""}`);
+  if (container) lines.push(`**Container:** \`${container}\``);
+  if (systemPath.length > 0) lines.push(`**Subsystem:** ${systemPath.join(" › ")}`);
 
+  if (!explain) {
+    lines.push("", "_explain data unavailable — run `ix map` to refresh graph_");
+    return lines.join("\n");
+  }
+  const role = explain.role?.role;
+  if (typeof role === "string" && role) {
+    const confidence = explain.role?.confidence;
+    lines.push(`**Role:** ${role}${typeof confidence === "string" && confidence ? ` (${confidence} confidence)` : ""}`);
+  }
+  const importance = explain.importance?.level;
+  if (typeof importance === "string" && importance) lines.push(`**Importance:** ${importance}`);
+  const callers = explain.facts?.callerCount;
+  const callees = explain.facts?.calleeCount;
+  if (typeof callers === "number") lines.push(`**Callers:** ${callers}`);
+  if (typeof callees === "number") lines.push(`**Callees:** ${callees}`);
+  if (explain.facts?.stale === true) lines.push("", "⚠ Data may be stale — run `ix map` to refresh.");
   return lines.join("\n");
 }

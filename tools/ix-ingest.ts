@@ -11,6 +11,7 @@ import {
   ToolContext,
   toolDirectory,
 } from "./base.ts";
+import { graphIngested, readStatus, readSubsystemNames, StatusReading } from "./cli-records.ts";
 
 // An explicit, agent-requested map of a whole project routinely runs for
 // minutes; the 60 s default killed it part-way.
@@ -40,15 +41,6 @@ export const parameters = {
 interface Params {
   refresh?: boolean;
   silent?: boolean;
-}
-
-interface StatusResult {
-  connected?: boolean;
-  graphPresent?: boolean;
-  lastUpdated?: string;
-  fileCount?: number;
-  staleness?: string;
-  recommendation?: string;
 }
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
@@ -100,7 +92,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   }
 
   try {
-    const status = await runIxJson<StatusResult>(["status", "--format", "json"], { cwd: dir });
+    const status = readStatus(await runIxJson<unknown>(["status", "--format", "json"], { cwd: dir }));
     return formatStatus(status);
   } catch {
     return probeStatus(dir);
@@ -109,11 +101,8 @@ export async function execute(params: Params, context: ToolContext): Promise<str
 
 async function probeStatus(dir: string): Promise<string> {
   try {
-    const parsed = await runIxJson<{ names?: string[]; list?: string[] }>(
-      ["subsystems", "--list", "--format", "json"],
-      { cwd: dir }
-    );
-    const names = parsed.names ?? parsed.list ?? [];
+    const parsed = await runIxJson<unknown>(["subsystems", "--list", "--format", "json"], { cwd: dir });
+    const names = readSubsystemNames(parsed);
     if (names.length === 0) {
       return [
         "## ix-ingest: status",
@@ -146,26 +135,35 @@ async function probeStatus(dir: string): Promise<string> {
   }
 }
 
-function formatStatus(status: StatusResult): string {
+function formatStatus(status: StatusReading): string {
   const lines = ["## ix-ingest: status", ""];
+  const known =
+    status.graphCompleted !== undefined ||
+    status.mapCompleted !== undefined ||
+    status.currentRev !== undefined ||
+    status.staleFiles !== undefined ||
+    status.lastIngestAt !== undefined;
+  if (!known) {
+    lines.push("_`ix status` reported no graph state. Run `ix status` directly for details._");
+    return lines.join("\n");
+  }
 
-  if (typeof status.connected === "boolean") {
-    lines.push(`**Connected:** ${status.connected ? "yes" : "no ⚠"}`);
+  const ingested = graphIngested(status);
+  lines.push(`**Graph ingested:** ${ingested ? "yes" : "no — run `ix map`"}`);
+  if (status.mapCompleted !== undefined) {
+    lines.push(`**Architecture map:** ${status.mapCompleted ? "built" : "not built"}`);
   }
-  if (typeof status.graphPresent === "boolean") {
-    lines.push(`**Graph present:** ${status.graphPresent ? "yes" : "no — run `ix map`"}`);
+  if (status.currentRev !== undefined) lines.push(`**Revision:** ${status.currentRev}`);
+  if (status.lastIngestAt) lines.push(`**Last ingest:** ${status.lastIngestAt}`);
+  // `ix status` prints staleFiles: 0 even with no ingest baseline, so the
+  // count only means "up to date" once a graph has been ingested.
+  if (ingested && status.staleFiles !== undefined) {
+    lines.push(
+      `**Freshness:** ${status.staleFiles > 0 ? `${status.staleFiles} stale file${status.staleFiles === 1 ? "" : "s"}` : "up to date"}`
+    );
   }
-  if (typeof status.fileCount === "number") {
-    lines.push(`**Files indexed:** ${status.fileCount}`);
-  }
-  if (status.lastUpdated) {
-    lines.push(`**Last updated:** ${status.lastUpdated}`);
-  }
-  if (status.staleness) {
-    lines.push(`**Freshness:** ${status.staleness}`);
-  }
-  if (status.recommendation) {
-    lines.push("", `**Recommendation:** ${status.recommendation}`);
+  if (!ingested) {
+    lines.push("", "**Recommendation:** Run `ix map` from the project root to build the graph.");
   }
 
   return lines.join("\n");
