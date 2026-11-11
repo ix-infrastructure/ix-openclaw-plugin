@@ -29,20 +29,30 @@ Build the region hierarchy. Flag immediately:
 
 Sort regions: worst health first.
 
-### Step 2 — Smell detection
+### Step 2 — Smells
 
 ```bash
-ix smells --format llm
+ix smells --list --format json
 ```
 
+This reads the smell results already stored in the graph and runs nothing. It prints
+`{count, smells: [{smell, entity_id}]}`: each row names the smell kind (`has_smell.orphan_file`, …)
+and a 12-character entity id, not a file. ix does not say when those results were detected,
+so they may predate the latest `ix map`; say so when you report them. If nothing is stored
+(`count` 0), say that no smell results are stored (not that the graph is clean) and that the
+user can ask for fresh detection. Do not run `ix smells` without `--list` (or the `ix-smells`
+tool with `detect: true`) unless the user asks for fresh detection: it re-runs the analysis
+and writes a new set of results to the Ix backend.
+
 Classify each smell:
-- `orphan` — files with no significant connections (dead code, isolation debt)
-- `god-module` — files with too many chunks or too high fan-in/out (too much responsibility)
-- `weak-component` — weakly connected files (loosely held together, artificial grouping)
+- `orphan_file` — files with no significant connections (dead code, isolation debt)
+- `god_module` — files with too many chunks or too high fan-in/out (too much responsibility)
+- `weak_component_member` — weakly connected files (loosely held together, artificial grouping)
 
-### Step 3 — Hotspot analysis (only if smells found or coupling is high)
+### Step 3 — Hotspot analysis (only if smells found, none stored, or coupling is high)
 
-Run only when Phase 1 or 2 reveals significant issues:
+Run only when Phase 1 or 2 reveals significant issues, or Step 2 found no stored smells
+(an empty store says nothing about health):
 ```bash
 ix rank --by dependents --kind class    --top 10 --exclude-path test --format llm
 ix rank --by dependents --kind function --top 10 --exclude-path test --format llm
@@ -57,8 +67,15 @@ If Step 1–3 identify one region as clearly the worst:
 ix subsystems <region> --explain
 ```
 
-Reuse the Step 2 `ix smells` output for this region — keep the findings whose file
-falls under the region's path (`ix smells` has no path filter).
+Reuse the Step 2 smells for this region. `ix smells` has no path filter, and a stored row
+names an entity id, not a file, so stored smells cannot be narrowed to the region: report them
+as whole-graph results and say so. Detection rows do name the file. If the user asked for fresh
+detection, run it (it writes, see Step 2):
+```bash
+ix smells --format json
+```
+It prints `{run_at, count, candidates: [{file, smell, confidence, signals}]}`; keep only the
+candidates whose `file` falls under the region's path.
 
 **Hard limit:** One region. Do not audit every subsystem — identify the worst and analyze that.
 

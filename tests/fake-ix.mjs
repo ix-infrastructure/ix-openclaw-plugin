@@ -10,6 +10,8 @@
  *   ix map <non-directory>   -> exit 1, "Map path is not a directory"
  *   ix locate ... --limit    -> exit 1, "unknown option '--limit'"
  *   ix smells ... --path     -> exit 1, "unknown option '--path'"
+ *   ix smells ... --limit    -> exit 1, "unknown option '--limit'" before v0.14.0
+ *   ix <cmd> ... <flag>      -> exit 1, "unknown option '<flag>'" after rejectOption()
  *   ix bugs | ix connect     -> exit 1, "unknown command"
  *
  * Every invocation is appended to `calls.log` as one JSON line
@@ -58,6 +60,26 @@ function fail(message) {
 
 const [command, ...rest] = argv;
 const has = (flag) => rest.includes(flag);
+
+// setVersion(): what \`ix --version\` prints (default 0.11.1). Flags a release
+// added are rejected below it, as commander rejects an unknown option.
+let version = "0.11.1";
+try { version = readFileSync(path.join(dir, "version"), "utf8").trim() || version; } catch {}
+function versionAtLeast(floor) {
+  const parts = version.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (parts[i] !== floor[i]) return parts[i] > floor[i];
+  return true;
+}
+// \`ix smells --limit\` arrived in v0.14.0 (Ix #828).
+if (command === "smells" && has("--limit") && !versionAtLeast([0, 14, 0])) fail("error: unknown option '--limit'");
+// rejectOption(): an older ix that lacks a flag, for flags whose first release
+// the tests do not pin (\`ix smells --list\` predates v0.12.0, the CI pin).
+try {
+  for (const entry of JSON.parse(readFileSync(path.join(dir, "rejected-options.json"), "utf8"))) {
+    const [cmd, flag] = entry.split(" ");
+    if (command === cmd && has(flag)) fail("error: unknown option '" + flag + "'");
+  }
+} catch (error) { if (error.code !== "ENOENT") throw error; }
 
 // setUnmapped(): graph reads answer as the real CLI does where no workspace
 // covers the directory -- an error record on stdout, exit 1.
@@ -148,7 +170,10 @@ switch (command) {
     break;
   case "smells":
     if (has("--path")) fail("error: unknown option '--path'");
-    process.stdout.write(rest.includes("llm") ? "smells none\\n" : JSON.stringify({ candidates: [], count: 0 }) + "\\n");
+    // --list reads the stored claims: {count, inference_version, smells: [...]};
+    // detection prints {run_at, count, candidates: [...]}.
+    if (has("--list")) process.stdout.write(rest.includes("llm") ? "" : JSON.stringify({ count: 0, smells: [] }) + "\\n");
+    else process.stdout.write(rest.includes("llm") ? "smells none\\n" : JSON.stringify({ candidates: [], count: 0 }) + "\\n");
     break;
   case "status": {
     const rootIndex = rest.indexOf("--root");
@@ -219,7 +244,7 @@ switch (command) {
     break;
   }
   case "--version":
-    process.stdout.write("0.11.1\\n");
+    process.stdout.write(version + "\\n");
     break;
   default:
     process.stdout.write("{}\\n");
@@ -329,6 +354,17 @@ export function installFakeIx() {
       const records = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
       records[key] = record;
       writeFileSync(file, JSON.stringify(records));
+    },
+    /** Make `ix --version` print `version` (default 0.11.1). */
+    setVersion(version) {
+      writeFileSync(path.join(dir, "version"), version + "\n");
+    },
+    /** Make `ix <command> <flag>` fail as commander does on an option it lacks. */
+    rejectOption(command, flag) {
+      const file = path.join(dir, "rejected-options.json");
+      const entries = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : [];
+      entries.push(command + " " + flag);
+      writeFileSync(file, JSON.stringify(entries));
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {

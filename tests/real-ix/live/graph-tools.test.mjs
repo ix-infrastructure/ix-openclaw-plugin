@@ -1,7 +1,7 @@
 // Copyright 2026 Ix Infrastructure Inc.
 
 /**
- * ix-query, ix-neighbors, ix-map, ix-ingest and ix-health against a RELEASED
+ * ix-query, ix-neighbors, ix-map, ix-ingest, ix-health and ix-smells against a RELEASED
  * `ix` and a LIVE throwaway backend (issue #67).
  *
  * These tools used to read JSON fields no released ix prints, so a real
@@ -28,6 +28,7 @@ import * as ixIngest from "../../../dist/tools/ix-ingest.js";
 import * as ixMap from "../../../dist/tools/ix-map.js";
 import * as ixNeighbors from "../../../dist/tools/ix-neighbors.js";
 import * as ixQuery from "../../../dist/tools/ix-query.js";
+import * as ixSmells from "../../../dist/tools/ix-smells.js";
 
 const endpoint = process.env.IX_LIVE_ENDPOINT;
 
@@ -127,5 +128,28 @@ test("ix-ingest status reports the ingested graph ix status describes", async ()
 test("ix-health calls a mapped workspace OK", async () => {
   const out = await ixHealth.execute({}, ctx);
   assert.match(out, /\*\*Status:\*\* OK/, out);
+  assert.doesNotMatch(out, CRASH, out);
+});
+
+test("ix-smells reads back stored smells with ix smells --list (issue #71)", async () => {
+  // Detection stores a set of smell claims and prints them as candidates[];
+  // --list reads the stored claims back, without re-running, as smells[].
+  const detected = ixJson(["smells"]);
+  assert.ok(Array.isArray(detected.record.candidates), detected.raw);
+  const listed = ixJson(["smells", "--list"]);
+  assert.ok(Array.isArray(listed.record.smells), listed.raw);
+  assert.equal(typeof listed.record.count, "number", listed.raw);
+
+  const out = await ixSmells.execute({}, ctx);
+  assert.match(out, /^## ix-smells/, out);
+  assert.doesNotMatch(out, /sent no rows/, out);
+  if (listed.record.smells.length > 0) {
+    assert.match(listed.record.smells[0].smell, /^has_smell\./, listed.raw);
+    assert.match(out, /Stored smell results/, out);
+    assert.doesNotMatch(out, /has_smell\./, out);
+    assert.match(out, new RegExp(`entity \`${listed.record.smells[0].entity_id}\``), out);
+  } else {
+    assert.match(out, /No smell results are stored/, out);
+  }
   assert.doesNotMatch(out, CRASH, out);
 });

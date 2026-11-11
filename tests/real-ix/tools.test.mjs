@@ -78,6 +78,8 @@ const TOOLS = [
   [ixExplain, { symbol: "runIx" }],
   [ixLocate, { pattern: "runIx", limit: 5 }],
   [ixSmells, {}],
+  // Detection (a write) only on request; the default reads `ix smells --list`.
+  [ixSmells, { detect: true }],
   [ixSubsystems, {}],
   [ixDecide, { touched_paths: ["tools/base.ts"] }],
   [ixDocsTool, { target: "tools/base.ts", depth: "brief" }],

@@ -51,7 +51,7 @@
 import { runIx } from "../tools/base.ts";
 import { redactSecrets } from "./secrets.ts";
 
-type SemVer = [number, number, number];
+export type SemVer = [number, number, number];
 
 /** command -> release whose renderer it needs. */
 export const LLM_MIN_VERSION: Record<string, SemVer> = {
@@ -131,6 +131,16 @@ async function detectVersion(cwd: string): Promise<SemVer | null> {
     })();
   }
   return versionPromise;
+}
+
+/**
+ * Whether the installed ix is at least `floor`. False when the version cannot
+ * be read, so a caller gating a newer flag on it fails closed (sends the argv
+ * every release accepts). Shares tryLlm's once-per-process probe.
+ */
+export async function ixVersionAtLeast(floor: SemVer, cwd: string): Promise<boolean> {
+  const version = await detectVersion(cwd);
+  return version !== null && gte(version, floor);
 }
 
 export function commandAllowsLlm(args: readonly string[]): boolean {

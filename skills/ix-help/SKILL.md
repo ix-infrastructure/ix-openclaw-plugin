@@ -29,7 +29,7 @@ If `$ARGUMENTS` is empty, return this menu:
 - `ix-subsystems` — all subsystems with file counts and hierarchy
 - `ix-inventory` — enumerate files or symbols in a path scope
 - `ix-stats` — graph-wide statistics and health
-- `ix-smells` — architecture smell detection
+- `ix-smells` — architecture smells: reads the stored results; `detect: true` re-runs detection (writes to the Ix backend)
 - `ix-map` — architectural overview with subsystem table
 - `ix-ingest` — graph status and refresh trigger
 - `ix-decide` — pre-edit policy verdict (ALLOW / REVIEW; a high-risk change is a REVIEW flagged high risk, never a hard block)
