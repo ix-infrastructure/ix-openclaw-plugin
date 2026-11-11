@@ -26,13 +26,14 @@
  * here instead of mapping the file they touched.
  */
 
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, type SpawnOptions } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { parseIxJson, runIx } from "../tools/base.ts";
+import { type IxLaunch, ixLaunch } from "../tools/ix-command.ts";
 
 const DEFAULT_DEBOUNCE_SECONDS = 300;
 const GIT_TIMEOUT_MS = 5_000;
@@ -136,6 +137,21 @@ export async function resolveProjectRoot(
  * Start `ix map <root> --silent` in the background if, and only if, every
  * guard above passes. Never throws; resolves with what it did and why.
  */
+/**
+ * Spawn options for the automatic map: the launch's own options (on Windows
+ * the cmd.exe route carries its environment) plus `IX_AUTO_MAP=1`, cwd = root,
+ * detached.
+ */
+export function autoMapSpawnOptions(launch: IxLaunch, root: string): SpawnOptions {
+  return {
+    ...launch.options,
+    cwd: root,
+    detached: true,
+    stdio: "ignore",
+    env: { ...(launch.options.env ?? process.env), IX_AUTO_MAP: "1" },
+  };
+}
+
 export async function requestGuardedMap(
   projectDir: string | undefined | null
 ): Promise<AutoMapResult> {
@@ -164,12 +180,8 @@ export async function requestGuardedMap(
     }
 
     try {
-      const child = spawn("ix", ["map", root, "--silent"], {
-        cwd: root,
-        detached: true,
-        stdio: "ignore",
-        env: { ...process.env, IX_AUTO_MAP: "1" },
-      });
+      const launch = ixLaunch(["map", root, "--silent"]);
+      const child = spawn(launch.file, launch.args, autoMapSpawnOptions(launch, root));
       // A missing binary surfaces as an async 'error' event; without a
       // listener it would crash the host process.
       child.on("error", () => {});

@@ -3,6 +3,8 @@
 import { execFile } from "node:child_process";
 import { statSync } from "node:fs";
 
+import { ixLaunch, type IxLaunch } from "./ix-command.ts";
+
 export interface ToolContext {
   directory: string;
   worktree?: string;
@@ -58,7 +60,17 @@ export function runIx(args: string[], options: RunIxOptions): Promise<string> {
   }
 
   return new Promise((resolve, reject) => {
-    execFile("ix", args, { cwd: options.cwd, timeout }, (error, stdout, stderr) => {
+    // Bare `ix` with no shell on POSIX; on Windows the resolved ix.cmd or the
+    // CLI's node entry (tools/ix-command.ts).
+    let launch: IxLaunch;
+    try {
+      launch = ixLaunch(args);
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      reject(new IxCommandError((error as Error).message, "", typeof code === "string" ? code : undefined));
+      return;
+    }
+    execFile(launch.file, launch.args, { cwd: options.cwd, timeout, ...launch.options }, (error, stdout, stderr) => {
       if (error) {
         const code = (error as { code?: unknown }).code;
         // `killed` is execFile's own kill: the timeout, or a stdout past
