@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { autoMapSpawnOptions } from "../dist/runtime/auto-map.js";
 import { runIx } from "../dist/tools/base.js";
 import { IxLaunchError, ixLaunch, quoteForCmd } from "../dist/tools/ix-command.js";
 
@@ -40,7 +41,30 @@ function winHost({ files = {}, env = {}, execPath = "C:\\Program Files\\nodejs\\
   };
 }
 
-const OUTER = '@"%~dp0..\\cli\\ix.cmd" %*\r\n';
+// `%IX_HOME%\bin\ix.cmd` exactly as the Ix installer (scripts/install/install.ps1)
+// writes it.
+const OUTER = [
+  "@echo off",
+  'if not exist "%~dp0..\\cli\\ix.cmd" goto :ix_missing',
+  '"%~dp0..\\cli\\ix.cmd" %*',
+  "exit /b %errorlevel%",
+  "",
+  ":ix_missing",
+  "echo(",
+  'echo   The Ix CLI is not at "%~dp0..\\cli\\ix.cmd".',
+  "echo(",
+  "echo   An 'ix upgrade' from a version before 0.9.0 moved the CLI and left",
+  "echo   this launcher pointing at the old path. Reinstalling repairs it:",
+  "echo(",
+  "echo     irm https://ix-infra.com/install.ps1 ^| iex",
+  "echo(",
+  "exit /b 1",
+  "",
+].join("\r\n");
+
+// `%IX_HOME%\cli\ix.cmd` exactly as the Ix release workflow writes it; the
+// script it names is therefore `%IX_HOME%\cli\cli\dist\cli\main.js`.
+const INNER = '@echo off\nnode "%~dp0cli\\dist\\cli\\main.js" %*\n';
 
 test("POSIX: ix is started by bare name with the argv untouched and no shell options", () => {
   const args = ["text", "a|b & c", "$(x)", "'q'", ""];
@@ -55,16 +79,17 @@ test("Windows: the installer layout starts node with the CLI script, no shell", 
     env: { PATH: "C:\\Users\\u\\.ix\\bin;C:\\Windows\\System32", PATHEXT: ".COM;.EXE;.BAT;.CMD" },
     files: {
       "C:\\Users\\u\\.ix\\bin\\ix.cmd": OUTER,
-      "C:\\Users\\u\\.ix\\cli\\ix.cmd": '@echo off\r\nnode "%~dp0dist\\cli\\main.js" %*\r\n',
-      "C:\\Users\\u\\.ix\\cli\\dist\\cli\\main.js": "",
+      "C:\\Users\\u\\.ix\\cli\\ix.cmd": INNER,
+      "C:\\Users\\u\\.ix\\cli\\cli\\dist\\cli\\main.js": "",
     },
   });
   const args = ["text", 'a|b&c"d%PATH%^!x', "C:\\dir\\"];
   const launch = ixLaunch(args, host);
   assert.equal(launch.file, "C:\\Program Files\\nodejs\\node.exe");
-  assert.deepEqual(launch.args, ["C:\\Users\\u\\.ix\\cli\\dist\\cli\\main.js", ...args]);
+  assert.deepEqual(launch.args, ["C:\\Users\\u\\.ix\\cli\\cli\\dist\\cli\\main.js", ...args]);
   assert.equal(launch.options.windowsVerbatimArguments, undefined);
   assert.equal(launch.options.shell, undefined);
+  assert.equal(launch.options.env, undefined);
 });
 
 test("Windows: an absolute script path in cli\\ix.cmd is used as written", () => {
@@ -85,13 +110,58 @@ test("Windows: when the plugin's own runtime is not node, node is taken from PAT
     env: { PATH: "relative\\dir;;D:\\ix\\bin;C:\\nodejs" },
     files: {
       "D:\\ix\\bin\\ix.cmd": OUTER,
-      "D:\\ix\\cli\\ix.cmd": '@node "%~dp0dist\\cli\\main.js" %*\r\n',
-      "D:\\ix\\cli\\dist\\cli\\main.js": "",
+      "D:\\ix\\cli\\ix.cmd": INNER,
+      "D:\\ix\\cli\\cli\\dist\\cli\\main.js": "",
       "C:\\nodejs\\node.exe": "",
       "relative\\dir\\node.exe": "",
     },
   });
   assert.equal(ixLaunch(["--version"], host).file, "C:\\nodejs\\node.exe");
+});
+
+test("Windows: without the node line in cli\\ix.cmd no script path is guessed; cmd.exe is used", () => {
+  const host = winHost({
+    env: { PATH: "D:\\ix\\bin" },
+    files: {
+      "D:\\ix\\bin\\ix.cmd": OUTER,
+      "D:\\ix\\cli\\ix.cmd": "@echo off\r\ncall something-else %*\r\n",
+      "D:\\ix\\cli\\dist\\cli\\main.js": "",
+      "D:\\ix\\cli\\cli\\dist\\cli\\main.js": "",
+    },
+  });
+  const launch = ixLaunch(["--version"], host);
+  assert.equal(launch.file, "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(launch.args[5], '""D:\\ix\\bin\\ix.cmd" "--version""');
+});
+
+test("Windows: the cmd.exe route sets NoDefaultCurrentDirectoryInExePath=1 on the host environment", () => {
+  const host = winHost({
+    env: { PATH: "C:\\tools", Foo: "bar", nodefaultcurrentdirectoryinexepath: "" },
+    files: { "C:\\tools\\ix.cmd": "" },
+  });
+  const launch = ixLaunch(["--version"], host);
+  assert.equal(launch.file, "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(launch.options.env.NoDefaultCurrentDirectoryInExePath, "1");
+  assert.equal(launch.options.env.Foo, "bar");
+  assert.equal(launch.options.env.PATH, "C:\\tools");
+  assert.deepEqual(
+    Object.keys(launch.options.env).filter((k) => k.toLowerCase() === "nodefaultcurrentdirectoryinexepath"),
+    ["NoDefaultCurrentDirectoryInExePath"]
+  );
+});
+
+test("auto-map keeps the cmd.exe route's environment and adds IX_AUTO_MAP=1", () => {
+  const host = winHost({ env: { PATH: "C:\\tools", Foo: "bar" }, files: { "C:\\tools\\ix.cmd": "" } });
+  const options = autoMapSpawnOptions(ixLaunch(["map", "C:\\repo", "--silent"], host), "C:\\repo");
+  assert.equal(options.env.NoDefaultCurrentDirectoryInExePath, "1");
+  assert.equal(options.env.Foo, "bar");
+  assert.equal(options.env.IX_AUTO_MAP, "1");
+  assert.equal(options.windowsVerbatimArguments, true);
+  assert.equal(options.cwd, "C:\\repo");
+
+  const posix = autoMapSpawnOptions({ file: "ix", args: [], options: {} }, "/repo");
+  assert.equal(posix.env.IX_AUTO_MAP, "1");
+  assert.equal(posix.env.PATH, process.env.PATH);
 });
 
 test("Windows: an ix.cmd outside the installer layout goes through cmd.exe with depth-proof quoting", () => {
@@ -187,24 +257,25 @@ test("POSIX: runIx hands the argv to ix without a shell", { skip: isWindows }, a
 // ── Windows, real cmd.exe and a two-level fake launcher ─────────────────────
 
 /**
- * <root>\<binName>\ix.cmd -> <root>\cli\ix.cmd -> node <root>\cli\main.js,
- * which writes its argv as JSON to <root>\argv.json.
+ * <root>\<binName>\ix.cmd -> <root>\cli\ix.cmd -> node
+ * <root>\cli\cli\dist\cli\main.js, which writes its argv as JSON to
+ * <root>\argv.json. Both launchers are the installer's and the release's text.
  */
 function twoLevelLauncher(binName) {
   const root = mkdtempSync(path.join(tmpdir(), "ix-win-launch-"));
   const bin = path.join(root, binName);
   const cli = path.join(root, "cli");
   mkdirSync(bin);
-  mkdirSync(cli);
-  const main = path.join(cli, "main.js");
+  mkdirSync(path.join(cli, "cli", "dist", "cli"), { recursive: true });
+  const main = path.join(cli, "cli", "dist", "cli", "main.js");
   const log = path.join(root, "argv.json");
   writeFileSync(
     main,
     `require("node:fs").writeFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)));\n`
   );
-  writeFileSync(path.join(bin, "ix.cmd"), '@"%~dp0..\\cli\\ix.cmd" %*\r\n');
-  writeFileSync(path.join(cli, "ix.cmd"), `@node "${main}" %*\r\n`);
-  return { root, bin, log, marker: path.join(root, "marker.txt") };
+  writeFileSync(path.join(bin, "ix.cmd"), OUTER);
+  writeFileSync(path.join(cli, "ix.cmd"), INNER);
+  return { root, bin, main, log, marker: path.join(root, "marker.txt") };
 }
 
 function canaryArgs(marker) {
@@ -286,7 +357,7 @@ test("Windows: a line break is refused before cmd.exe runs", { skip: !isWindows 
 test("Windows: ix-health reports the version from an installer-layout ix.cmd", { skip: !isWindows }, async () => {
   const fake = twoLevelLauncher("bin");
   writeFileSync(
-    path.join(fake.root, "cli", "main.js"),
+    fake.main,
     'process.stdout.write(JSON.stringify({ version: "9.8.7" }) + "\\n");\n'
   );
   try {

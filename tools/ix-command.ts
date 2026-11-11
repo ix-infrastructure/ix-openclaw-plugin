@@ -18,11 +18,14 @@
  *     working directory is never searched.
  *  2. For the installer layout, node is started directly with the CLI script
  *     and the argv as an array. No shell, nothing to quote.
- *  3. Any other `.cmd`/`.bat` goes through cmd.exe with quoting that holds at
- *     any depth (the scheme Rust's standard library uses for batch files):
- *     every argument in double quotes, `"` written as `""`, backslashes before
- *     a quote or the end doubled, `%` neutralised, no carets, `/v:off`. An
- *     argument with CR, LF or NUL cannot be passed safely and is refused.
+ *  3. Any other `.cmd`/`.bat` goes through cmd.exe with quoting that holds
+ *     through `%*` forwarding without `call` (the scheme Rust's standard
+ *     library uses for batch files): every argument in double quotes, `"`
+ *     written as `""`, backslashes before a quote or the end doubled, `%`
+ *     neutralised, no carets, `/v:off`. An argument with CR, LF or NUL cannot
+ *     be passed safely and is refused. cmd.exe gets
+ *     `NoDefaultCurrentDirectoryInExePath=1` so a bare `node` (or any other
+ *     command) in a launcher is never taken from the working directory.
  */
 
 import { readFileSync, statSync } from "node:fs";
@@ -32,7 +35,12 @@ import path from "node:path";
 export interface IxLaunch {
   file: string;
   args: string[];
-  options: { windowsVerbatimArguments?: boolean; windowsHide?: boolean };
+  options: {
+    windowsVerbatimArguments?: boolean;
+    windowsHide?: boolean;
+    /** Set only for the cmd.exe route; otherwise the child inherits the environment. */
+    env?: Record<string, string | undefined>;
+  };
 }
 
 /** `ix` could not be started safely, or was not found (`code` "ENOENT"). */
@@ -120,16 +128,31 @@ export function ixLaunch(args: readonly string[], host?: LaunchHost): IxLaunch {
       return {
         file: plan.cmdExe,
         args: ["/e:on", "/d", "/v:off", "/s", "/c", `"${line}"`],
-        options: { ...options, windowsVerbatimArguments: true },
+        options: { ...options, windowsVerbatimArguments: true, env: cmdEnv(h.env) },
       };
     }
   }
 }
 
 /**
- * One argument for a cmd.exe command line that runs a batch file, safe however
- * many times cmd.exe re-parses it: every character stays inside a quoted
- * region at every level, and `%` cannot expand a variable.
+ * The host environment with `NoDefaultCurrentDirectoryInExePath=1`, so cmd.exe
+ * resolves commands in the launchers from PATH only, never from the working
+ * directory. Any differently-cased copy of the name is dropped first, as
+ * Windows treats environment names case-insensitively.
+ */
+function cmdEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toLowerCase() !== "nodefaultcurrentdirectoryinexepath") out[key] = value;
+  }
+  out.NoDefaultCurrentDirectoryInExePath = "1";
+  return out;
+}
+
+/**
+ * One argument for a cmd.exe command line that runs a batch file, safe
+ * through `%*` forwarding without `call`: every character stays inside a
+ * quoted region at every level, and `%` cannot expand a variable.
  */
 export function quoteForCmd(arg: string): string {
   if (/[\r\n\0]/.test(arg)) {
@@ -183,6 +206,8 @@ function installerEntry(host: LaunchHost, found: string): WindowsPlan | null {
   const inner = host.readFile(win.join(cliDir, "ix.cmd"));
   if (inner === null) return null;
 
+  // Only the path written in the launcher is used; nothing is guessed. If the
+  // line is not there the caller falls back to the cmd.exe route.
   let script: string | null = null;
   const match = inner.match(/^[ \t]*@?[ \t]*"?node(?:\.exe)?"?[ \t]+"([^"\r\n]+)"[ \t]+%\*[ \t]*\r?$/im);
   if (match) {
@@ -191,10 +216,6 @@ function installerEntry(host: LaunchHost, found: string): WindowsPlan | null {
       const candidate = win.normalize(written);
       if (host.isFile(candidate)) script = candidate;
     }
-  }
-  if (!script) {
-    const known = win.join(cliDir, "dist", "cli", "main.js");
-    if (host.isFile(known)) script = known;
   }
   if (!script) return null;
 
