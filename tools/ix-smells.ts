@@ -40,6 +40,9 @@ const REDETECT_HINT = "If the user asks for fresh results, `detect: true` re-run
 // `--limit`: when ix rejects the option, the read is retried without it.
 const LIST_LIMIT_SINCE: [number, number, number] = [0, 14, 0];
 const UNKNOWN_LIMIT_OPTION = /unknown option ['"`]?--limit/i;
+// An ix older than `ix smells --list` rejects the option the same way. That is
+// not an unavailable ix, and `ix map` does not fix it, so it gets its own message.
+const UNKNOWN_LIST_OPTION = /unknown option ['"`]?--list/i;
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
@@ -71,14 +74,16 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     }
   } catch (error) {
     // A failed read never turns into a write.
-    return ixUnavailableMessage("ix-smells", UNAVAILABLE, getErrorMessage(error));
+    const message = getErrorMessage(error);
+    if (UNKNOWN_LIST_OPTION.test(message)) return listUnsupportedMessage(message);
+    return ixUnavailableMessage("ix-smells", UNAVAILABLE, message);
   }
 
   const rows = readRows(stored, "smells");
   const total = readCount(stored, rows);
 
   if (rows.length > 0 || total > 0) {
-    const source = `_Stored smell results from the last detection run, read with \`ix smells --list\`; nothing was re-run. ix does not record when that run was, so these may predate the latest \`ix map\`. Stored rows name the graph entity (a 12-character id), not its file. ${REDETECT_HINT}_`;
+    const source = `_Stored smell results from the last detection run, read with \`ix smells --list\`; nothing was re-run. ix does not record when that run was, so these may predate the latest \`ix map\`. Stored rows name the graph entity (a 12-character id), not its file, so they cannot be narrowed to a path. Detection rows name the file. ${REDETECT_HINT}_`;
     return render(rows, total, limit, undefined, source);
   }
 
@@ -92,6 +97,19 @@ export async function execute(params: Params, context: ToolContext): Promise<str
     "Either smell detection has not been run on this graph, or its last run found nothing; ix does not say which.",
     "",
     "If the user asks for it, `detect: true` runs smell detection. It is slow and writes a new set of smell results to the Ix backend. If the graph is not mapped yet, run `ix map` first.",
+  ].join("\n");
+}
+
+/** The installed ix has no `ix smells --list`: say so, and that upgrading ix fixes it. */
+function listUnsupportedMessage(error: string): string {
+  return [
+    "## ix-smells",
+    "",
+    "**This ix CLI cannot read stored smell results:** it rejected `ix smells --list`, which older releases do not have. Nothing was run.",
+    "",
+    "Upgrade the ix CLI to read stored results. If the user asks for fresh detection, `detect: true` runs it on this ix; it is slow and writes a new set of smell results to the Ix backend.",
+    "",
+    `Error: ${error}`,
   ].join("\n");
 }
 

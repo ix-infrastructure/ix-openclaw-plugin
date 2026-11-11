@@ -268,17 +268,66 @@ test("a failure other than a rejected --limit is reported, not retried", async (
   });
 });
 
-// The agent docs run `ix smells --list` themselves. Its JSON shape is the one
-// the live test checks against a real ix; `--list --format llm` is not checked
-// anywhere, so the docs must not depend on it.
+test("an ix that predates `smells --list` gets an upgrade message, not 'ix unavailable', and no detection", async () => {
+  for (const version of ["0.11.1", "0.14.0"]) {
+    await withFakeIx(async (ix) => {
+      ix.setVersion(version);
+      ix.rejectOption("smells", "--list");
+      ix.setRecord("smells", DETECTED);
+      const output = await ixSmells.execute({}, { directory: ix.dir });
+
+      assert.equal(ix.calls().filter(isList).length, 1, `${version}: one read, not retried`);
+      assert.deepEqual(ix.calls().filter(isDetect), [], `${version}: a rejected read must not turn into a write`);
+      assert.match(output, /^## ix-smells/);
+      assert.match(output, /cannot read stored smell results/);
+      assert.match(output, /Upgrade the ix CLI/);
+      assert.match(output, /unknown option '--list'/);
+      assert.doesNotMatch(output, /ix unavailable/i);
+      assert.doesNotMatch(output, /ix map/, "running ix map does not fix a missing option");
+    });
+  }
+});
+
+test("stored rows say they cannot be narrowed to a path, and that detection rows name the file", async () => {
+  await withFakeIx(async (ix) => {
+    ix.setRecord("smells --list", STORED);
+    const output = await ixSmells.execute({}, { directory: ix.dir });
+    assert.match(output, /cannot be narrowed to a path/);
+    assert.match(output, /Detection rows name the file/);
+  });
+});
+
+// The agent docs run `ix smells --list` themselves. Its JSON shape, and that of
+// detection (`ix smells --format json`), are the ones the live test checks
+// against a real ix; `--format llm` is not checked anywhere, so the docs must
+// not depend on it.
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 for (const doc of ["AGENTS.md", "agents/ix-architecture-auditor.md", "skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
-  test(`${doc} shows the smells command as \`ix smells --list --format json\``, () => {
+  test(`${doc} reads smells with \`ix smells --list --format json\` and shows no llm form`, () => {
     const text = readFileSync(path.join(projectRoot, doc), "utf8");
     const commands = text.split("\n").filter((line) => /ix smells\b/.test(line) && /--format/.test(line));
-    assert.ok(commands.length > 0, `${doc} should show the smells command`);
+    assert.ok(commands.some((line) => /ix smells --list --format json/.test(line)), `${doc} should show the stored-results read`);
     for (const line of commands) {
-      assert.match(line, /ix smells --list --format json/, line);
+      assert.match(line, /ix smells (--list )?--format json/, line);
     }
+  });
+}
+
+// Stored rows carry no file. Where a doc narrows smells to a path, it must do
+// so on detection rows (which name the file), only when the user asks, and say
+// that detection writes.
+for (const doc of ["agents/ix-architecture-auditor.md", "skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
+  test(`${doc} narrows smells to a path only on detection rows the user asked for`, () => {
+    const text = readFileSync(path.join(projectRoot, doc), "utf8");
+    const detection = text.indexOf("ix smells --format json");
+    assert.ok(detection > 0, `${doc} should show the detection command for path-scoped smells`);
+    // Prose wraps anywhere: compare with whitespace collapsed.
+    const flat = (part) => part.replace(/\s+/g, " ");
+    const before = flat(text.slice(Math.max(0, detection - 600), detection));
+    const after = flat(text.slice(detection, detection + 400));
+    assert.match(before, /stored smells cannot be narrowed/);
+    assert.match(before, /If the user ask(s|ed) for fresh detection/);
+    assert.match(before, /it writes/);
+    assert.match(after, /candidates whose `file` falls under/);
   });
 }

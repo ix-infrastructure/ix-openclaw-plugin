@@ -11,6 +11,7 @@
  *   ix locate ... --limit    -> exit 1, "unknown option '--limit'"
  *   ix smells ... --path     -> exit 1, "unknown option '--path'"
  *   ix smells ... --limit    -> exit 1, "unknown option '--limit'" before v0.14.0
+ *   ix <cmd> ... <flag>      -> exit 1, "unknown option '<flag>'" after rejectOption()
  *   ix bugs | ix connect     -> exit 1, "unknown command"
  *
  * Every invocation is appended to `calls.log` as one JSON line
@@ -71,6 +72,14 @@ function versionAtLeast(floor) {
 }
 // \`ix smells --limit\` arrived in v0.14.0 (Ix #828).
 if (command === "smells" && has("--limit") && !versionAtLeast([0, 14, 0])) fail("error: unknown option '--limit'");
+// rejectOption(): an older ix that lacks a flag, for flags whose first release
+// the tests do not pin (\`ix smells --list\` predates v0.12.0, the CI pin).
+try {
+  for (const entry of JSON.parse(readFileSync(path.join(dir, "rejected-options.json"), "utf8"))) {
+    const [cmd, flag] = entry.split(" ");
+    if (command === cmd && has(flag)) fail("error: unknown option '" + flag + "'");
+  }
+} catch (error) { if (error.code !== "ENOENT") throw error; }
 
 // setUnmapped(): graph reads answer as the real CLI does where no workspace
 // covers the directory -- an error record on stdout, exit 1.
@@ -337,6 +346,13 @@ export function installFakeIx() {
     /** Make `ix --version` print `version` (default 0.11.1). */
     setVersion(version) {
       writeFileSync(path.join(dir, "version"), version + "\n");
+    },
+    /** Make `ix <command> <flag>` fail as commander does on an option it lacks. */
+    rejectOption(command, flag) {
+      const file = path.join(dir, "rejected-options.json");
+      const entries = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : [];
+      entries.push(command + " " + flag);
+      writeFileSync(file, JSON.stringify(entries));
     },
     /** Answer `ix briefing` with `text`; without it, briefing says Pro is absent. */
     setBriefing(text) {

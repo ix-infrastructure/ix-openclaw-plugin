@@ -291,8 +291,17 @@ user can ask for fresh detection. Do not run `ix smells` without `--list` (or th
 tool with `detect: true`) unless the user asks for fresh detection: it re-runs the analysis
 and writes a new set of results to the Ix backend.
 
-`ix smells` always covers the whole graph (it has no path filter). If the target is
-smaller than a full repo, say that the smells cover the whole graph.
+`ix smells` always covers the whole graph (it has no path filter), and a stored row names
+an entity id, not a file, so stored smells cannot be narrowed to a path. If the target is
+smaller than a full repo, report the stored
+smells as whole-graph results and say they could not be narrowed to it.
+Detection rows do name the file. If the user asks for fresh detection, run it (it writes, see
+above):
+```bash
+timeout 60s ix smells --format json
+```
+It prints `{run_at, count, candidates: [{file, smell, confidence, signals}]}`; keep only the
+candidates whose `file` falls under the target.
 
 Prioritize:
 - god modules

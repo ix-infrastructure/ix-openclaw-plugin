@@ -67,9 +67,15 @@ If Step 1–3 identify one region as clearly the worst:
 ix subsystems <region> --explain
 ```
 
-Reuse the Step 2 smells for this region (`ix smells` has no path filter, and stored rows
-name an entity id rather than a file, so only keep a finding for the region when you can
-tie its entity to the region's path).
+Reuse the Step 2 smells for this region. `ix smells` has no path filter, and a stored row
+names an entity id, not a file, so stored smells cannot be narrowed to the region: report them
+as whole-graph results and say so. Detection rows do name the file. If the user asked for fresh
+detection, run it (it writes, see Step 2):
+```bash
+ix smells --format json
+```
+It prints `{run_at, count, candidates: [{file, smell, confidence, signals}]}`; keep only the
+candidates whose `file` falls under the region's path.
 
 **Hard limit:** One region. Do not audit every subsystem — identify the worst and analyze that.
 
