@@ -102,6 +102,24 @@ function ixJson(args) {
   return { raw, record: JSON.parse(raw) };
 }
 
+/**
+ * The tool's output and the CLI's record for the same question, read while the
+ * graph held still. The live files run in parallel against one backend, and a
+ * sibling file's `ix map` can change totals, ranks or regions between two
+ * reads. So read the record before and after the tool; if the two records
+ * differ, the graph moved under the tool and the pair is read again.
+ */
+async function readSteady(tool, params, mode, cliArgs) {
+  let before = ixJson(cliArgs);
+  for (let attempt = 1; ; attempt++) {
+    const out = await run(tool, params, mode);
+    const after = ixJson(cliArgs);
+    if (after.raw === before.raw || attempt >= 5) return { out, ...after };
+    before = after;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+}
+
 const MODES = [
   // The tools' default: ix's own llm records, passed through under the header.
   { name: "llm", json: false },
@@ -136,17 +154,20 @@ for (const mode of MODES) {
       const { raw, record } = ixJson(["explain", "coreValue"]);
       assert.equal(typeof record.resolvedTarget?.kind, "string", raw);
       assert.ok(out.includes(`**Kind:** ${record.resolvedTarget.kind}`), out);
-      if (typeof record.facts?.callerCount === "number") {
-        assert.ok(out.includes(`callers: ${record.facts.callerCount}`), out);
-      }
+      // Three files call coreValue, so ix counts its callers; the tool reads
+      // that count by name and must show it.
+      assert.equal(typeof record.facts?.callerCount, "number", raw);
+      assert.ok(record.facts.callerCount >= 3, raw);
+      assert.ok(out.includes(`callers: ${record.facts.callerCount}`), out);
     }
   });
 
   test(`ix-stats reports the graph's totals (${mode.name})`, async () => {
-    const out = await run(ixStats, {}, mode);
-    assertAnswered(out, /^## ix-stats/);
-    if (mode.json) {
-      const { raw, record } = ixJson(["stats"]);
+    if (!mode.json) {
+      assertAnswered(await run(ixStats, {}, mode), /^## ix-stats/);
+    } else {
+      const { out, raw, record } = await readSteady(ixStats, {}, mode, ["stats"]);
+      assertAnswered(out, /^## ix-stats/);
       assert.equal(typeof record.nodes?.total, "number", raw);
       assert.ok(out.includes(`- Total nodes: ${record.nodes.total}`), out);
       const files = record.nodes.byKind?.find((entry) => entry.kind === "file")?.count;
@@ -159,11 +180,15 @@ for (const mode of MODES) {
   test(`ix-rank ranks the fixture's functions by callers (${mode.name})`, async () => {
     // Four functions, so coreValue (the only one with callers) is in the top five.
     const params = { by: "callers", kind: "function", top: 5 };
-    const out = await run(ixRank, params, mode);
-    assertAnswered(out, /^## ix-rank: /);
-    assert.match(out, /coreValue/, out);
-    if (mode.json) {
-      const { raw, record } = ixJson(["rank", "--by", "callers", "--kind", "function", "--top", "5"]);
+    if (!mode.json) {
+      const out = await run(ixRank, params, mode);
+      assertAnswered(out, /^## ix-rank: /);
+      assert.match(out, /coreValue/, out);
+    } else {
+      const cliArgs = ["rank", "--by", "callers", "--kind", "function", "--top", "5"];
+      const { out, raw, record } = await readSteady(ixRank, params, mode, cliArgs);
+      assertAnswered(out, /^## ix-rank: /);
+      assert.match(out, /coreValue/, out);
       assert.ok(Array.isArray(record.results) && record.results.length > 0, raw);
       assert.equal(typeof record.results[0].name, "string", raw);
       assert.ok(out.includes(`| 1 | \`${record.results[0].name}\` |`), out);
@@ -202,10 +227,11 @@ for (const mode of MODES) {
   });
 
   test(`ix-subsystems shows the regions ix subsystems prints (${mode.name})`, async () => {
-    const out = await run(ixSubsystems, {}, mode);
-    assertAnswered(out, /^## ix-subsystems/);
-    if (mode.json) {
-      const { raw, record } = ixJson(["subsystems"]);
+    if (!mode.json) {
+      assertAnswered(await run(ixSubsystems, {}, mode), /^## ix-subsystems/);
+    } else {
+      const { out, raw, record } = await readSteady(ixSubsystems, {}, mode, ["subsystems"]);
+      assertAnswered(out, /^## ix-subsystems/);
       assert.ok(Array.isArray(record.regions), raw);
       // A project this small may form no region; then, and only then, the
       // tool may say so.
@@ -231,7 +257,8 @@ test("ix-docs-tool gives context for a symbol the graph contains", async () => {
   const out = await run(ixDocsTool, { target: "coreValue", depth: "standard" }, { json: false });
   assertAnswered(out, /^## Context: coreValue/);
   const { raw, record } = ixJson(["overview", "coreValue"]);
-  if (typeof record.resolvedTarget?.kind === "string") {
-    assert.ok(out.includes(`**Kind:** ${record.resolvedTarget.kind}`), `${out}\n--- ix overview ---\n${raw}`);
-  }
+  // The tool renders nothing from its locate call, so Kind, read from this
+  // record by name, is what proves it read ix's overview at all.
+  assert.equal(typeof record.resolvedTarget?.kind, "string", raw);
+  assert.ok(out.includes(`**Kind:** ${record.resolvedTarget.kind}`), `${out}\n--- ix overview ---\n${raw}`);
 });
