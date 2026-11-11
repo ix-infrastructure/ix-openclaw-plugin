@@ -159,9 +159,15 @@ test("auto-map keeps the cmd.exe route's environment and adds IX_AUTO_MAP=1", ()
   assert.equal(options.windowsVerbatimArguments, true);
   assert.equal(options.cwd, "C:\\repo");
 
-  const posix = autoMapSpawnOptions({ file: "ix", args: [], options: {} }, "/repo");
-  assert.equal(posix.env.IX_AUTO_MAP, "1");
-  assert.equal(posix.env.PATH, process.env.PATH);
+  // Without a launch environment the process environment is used.
+  process.env.IX_LAUNCH_TEST_SENTINEL = "kept";
+  try {
+    const plain = autoMapSpawnOptions({ file: "ix", args: [], options: {} }, "/repo");
+    assert.equal(plain.env.IX_AUTO_MAP, "1");
+    assert.equal(plain.env.IX_LAUNCH_TEST_SENTINEL, "kept");
+  } finally {
+    delete process.env.IX_LAUNCH_TEST_SENTINEL;
+  }
 });
 
 test("Windows: an ix.cmd outside the installer layout goes through cmd.exe with depth-proof quoting", () => {
