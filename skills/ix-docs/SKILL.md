@@ -279,12 +279,15 @@ Use this phase to populate:
 
 Use:
 ```bash
-timeout 60s ix smells --list --format llm
+timeout 60s ix smells --list --format json
 ```
 
-This reads the smell results already stored in the graph and runs nothing. Each row names
-the smell kind (`has_smell.orphan_file`, …) and a 12-character entity id, not a file.
-If nothing is stored, say so. Do not run `ix smells` without `--list` (or the `ix-smells`
+This reads the smell results already stored in the graph and runs nothing. It prints
+`{count, smells: [{smell, entity_id}]}`: each row names the smell kind (`has_smell.orphan_file`, …)
+and a 12-character entity id, not a file. ix does not say when those results were detected,
+so they may predate the latest `ix map`; say so when you report them. If nothing is stored
+(`count` 0), say that no smell results are stored (not that the graph is clean) and that the
+user can ask for fresh detection. Do not run `ix smells` without `--list` (or the `ix-smells`
 tool with `detect: true`) unless the user asks for fresh detection: it re-runs the analysis
 and writes a new set of results to the Ix backend.
 

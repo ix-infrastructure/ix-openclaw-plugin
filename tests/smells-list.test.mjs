@@ -6,7 +6,10 @@
 // with `ix smells --list` and runs detection only when asked to
 // (`detect: true`), never on its own.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { installFakeIx } from "./fake-ix.mjs";
 import { resetLlmVersionCache } from "../dist/runtime/llm.js";
@@ -71,6 +74,8 @@ test("a default ix-smells call reads stored claims with `ix smells --list` and r
     assert.doesNotMatch(output, /sent no rows/);
     assert.doesNotMatch(output, /src\/fresh\.ts/);
     assert.match(output, /stored/i, "must say the results are stored ones");
+    // --list prints no run_at: the output must not pass the rows off as current.
+    assert.match(output, /may predate the latest `ix map`/);
     assert.match(output, /detect: true/, "must say how to re-run detection");
   });
 });
@@ -228,3 +233,52 @@ test("the limit sent to ix is a whole number from 1 to 200", async () => {
     });
   }
 });
+
+test("an ix that rejects --limit despite a cached newer version is read again without it", async () => {
+  await withFakeIx(async (ix) => {
+    // The version is probed once per process: 0.14.0 is cached, then ix is
+    // downgraded under the running host to one that rejects `smells --limit`.
+    ix.setVersion("0.14.0");
+    ix.setRecord("smells --list", STORED);
+    await ixSmells.execute({ limit: 1 }, { directory: ix.dir });
+    ix.setVersion("0.12.0");
+    const before = ix.calls().length;
+    const output = await ixSmells.execute({ limit: 1 }, { directory: ix.dir });
+
+    const lists = ix.calls().slice(before).filter(isList).map((call) => call.argv);
+    assert.deepEqual(lists, [
+      ["smells", "--list", "--limit", "1", "--format", "json"],
+      ["smells", "--list", "--format", "json"],
+    ]);
+    assert.deepEqual(ix.calls().filter(isDetect), [], "a retried read must not turn into a write");
+    assert.doesNotMatch(output, /unavailable/i);
+    assert.match(output, /\*\*2 smells detected\*\* \(showing 1 of 2\)/);
+  });
+});
+
+test("a failure other than a rejected --limit is reported, not retried", async () => {
+  await withFakeIx(async (ix) => {
+    ix.setVersion("0.14.0");
+    ix.setUnreachable();
+    const output = await ixSmells.execute({}, { directory: ix.dir });
+
+    assert.equal(ix.calls().filter(isList).length, 1);
+    assert.deepEqual(ix.calls().filter(isDetect), []);
+    assert.match(output, /unavailable/i);
+  });
+});
+
+// The agent docs run `ix smells --list` themselves. Its JSON shape is the one
+// the live test checks against a real ix; `--list --format llm` is not checked
+// anywhere, so the docs must not depend on it.
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+for (const doc of ["AGENTS.md", "agents/ix-architecture-auditor.md", "skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
+  test(`${doc} shows the smells command as \`ix smells --list --format json\``, () => {
+    const text = readFileSync(path.join(projectRoot, doc), "utf8");
+    const commands = text.split("\n").filter((line) => /ix smells\b/.test(line) && /--format/.test(line));
+    assert.ok(commands.length > 0, `${doc} should show the smells command`);
+    for (const line of commands) {
+      assert.match(line, /ix smells --list --format json/, line);
+    }
+  });
+}

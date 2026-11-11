@@ -146,7 +146,7 @@ An invalid skill:
 | Blast radius | `ix impact <target> --format llm` |
 | List entities in path | `ix inventory --kind function --path <dir> --format llm` |
 | Text search | `ix text <pattern> --limit 20 --format llm` |
-| Code smells (stored results) | `ix smells --list --format llm` |
+| Code smells (stored results) | `ix smells --list --format json` |
 | Rank key components | `ix rank --by dependents --kind class --top 10 --format llm` |
 | Refresh graph | `ix map --silent` |
 

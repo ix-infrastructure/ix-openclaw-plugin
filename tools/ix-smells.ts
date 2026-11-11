@@ -35,8 +35,11 @@ const REDETECT_HINT = "If the user asks for fresh results, `detect: true` re-run
 
 // `ix smells --list` takes `--limit` from ix v0.14.0. Older releases (CI pins
 // v0.12.0) reject the unknown option, so it is sent only to a CLI known to
-// accept it; otherwise the tool caps the rows itself.
+// accept it; otherwise the tool caps the rows itself. The version is probed
+// once per process, so a CLI downgraded under a running host can still be sent
+// `--limit`: when ix rejects the option, the read is retried without it.
 const LIST_LIMIT_SINCE: [number, number, number] = [0, 14, 0];
+const UNKNOWN_LIMIT_OPTION = /unknown option ['"`]?--limit/i;
 
 export async function execute(params: Params, context: ToolContext): Promise<string> {
   const dir = toolDirectory(context);
@@ -54,13 +57,18 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   // `smell` is the claim kind ("has_smell.orphan_file"), `entity_id` a 12-character
   // prefix. The backend keeps confidence, file and signals inside the claim's
   // value, which --list does not print.
-  const listArgs = ["smells", "--list"];
-  if (await ixVersionAtLeast(LIST_LIMIT_SINCE, dir)) listArgs.push("--limit", String(limit));
-  listArgs.push("--format", "json");
+  const plainList = ["smells", "--list", "--format", "json"];
+  const sendLimit = await ixVersionAtLeast(LIST_LIMIT_SINCE, dir);
 
   let stored: any;
   try {
-    stored = await runIxJson<any>(listArgs, { cwd: dir });
+    try {
+      stored = await runIxJson<any>(sendLimit ? ["smells", "--list", "--limit", String(limit), "--format", "json"] : plainList, { cwd: dir });
+    } catch (error) {
+      if (!sendLimit || !UNKNOWN_LIMIT_OPTION.test(getErrorMessage(error))) throw error;
+      // This ix predates `--limit`; the rows are capped below either way.
+      stored = await runIxJson<any>(plainList, { cwd: dir });
+    }
   } catch (error) {
     // A failed read never turns into a write.
     return ixUnavailableMessage("ix-smells", UNAVAILABLE, getErrorMessage(error));
@@ -70,7 +78,7 @@ export async function execute(params: Params, context: ToolContext): Promise<str
   const total = readCount(stored, rows);
 
   if (rows.length > 0 || total > 0) {
-    const source = `_Stored smell results from the last detection run, read with \`ix smells --list\`; nothing was re-run. Stored rows name the graph entity (a 12-character id), not its file. ${REDETECT_HINT}_`;
+    const source = `_Stored smell results from the last detection run, read with \`ix smells --list\`; nothing was re-run. ix does not record when that run was, so these may predate the latest \`ix map\`. Stored rows name the graph entity (a 12-character id), not its file. ${REDETECT_HINT}_`;
     return render(rows, total, limit, undefined, source);
   }
 
