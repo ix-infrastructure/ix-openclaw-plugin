@@ -54,8 +54,6 @@ echo ""
 # ── 3. Validate workspace files ──────────────────────────────────────────────
 echo "── Checking workspace files ──"
 
-[ -f "$REPO/SOUL.md" ]   && ok "SOUL.md"   || fail "missing SOUL.md"
-[ -f "$REPO/AGENTS.md" ] && ok "AGENTS.md" || fail "missing AGENTS.md"
 [ ! -f "$REPO/CLAUDE.md" ] && ok "CLAUDE.md removed" || fail "stale CLAUDE.md still present"
 [ ! -d "$REPO/.claude-plugin" ] && ok ".claude-plugin/ removed" || fail "stale .claude-plugin/ still present"
 
@@ -77,11 +75,11 @@ done
 
 echo ""
 
-# ── 5. Validate agents ──────────────────────────────────────────────────────
-echo "── Agents ──"
-for agent in ix-explorer ix-system-explorer ix-bug-investigator ix-safe-refactor-planner ix-architecture-auditor; do
-  [ -f "$REPO/agents/$agent.md" ] && ok "$agent" || fail "missing: agents/$agent.md"
-done
+# ── 5. No unloaded prompt files ─────────────────────────────────────────────
+# OpenClaw loads no agent prompts or SOUL.md from a plugin directory.
+echo "── Prompt files ──"
+[ ! -d "$REPO/agents" ] && ok "no agents/ prompts" || fail "agents/ is not loaded by OpenClaw"
+[ ! -f "$REPO/SOUL.md" ] && ok "no SOUL.md" || fail "SOUL.md is not loaded by OpenClaw"
 
 echo ""
 
