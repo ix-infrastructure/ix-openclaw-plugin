@@ -12,10 +12,20 @@
  * read-tools.test.mjs are matched against what is left: the words the tool
  * wrote itself.
  *
+ * Only a string that itself holds a failure phrase (CRASH, NO_ANSWER, or the
+ * word "none" that NONE ends in) is blanked. Any other string cannot make a
+ * failure pattern match, so it is left in place: blanking it could only hurt,
+ * since a short one ("de", "fin", "und") would split the tool's own
+ * "undefined" or "not found" and hide a real failure.
+ *
  * Each string is replaced by a NUL, never by nothing, so the text on either
  * side of it cannot join into a word that was not there. Longer strings go
  * first, so a short one inside a long one cannot split it before it is
  * removed whole.
+ *
+ * What stays ambiguous: a record string that is exactly a failure word
+ * ("none", "NaN") also blanks that same word where the tool wrote it. Equal
+ * text cannot be told apart.
  *
  * Not a test file itself: tests/real-ix/live/read-tools.test.mjs uses it, and
  * tests/real-ix-own-words.test.mjs tests it under `npm test`.
@@ -44,9 +54,14 @@ export function recordStrings(value, into = new Set()) {
   return into;
 }
 
-/** `out` with each string of `record` replaced by a NUL. */
+/** Whether ix's string `s` says something a failure pattern looks for. */
+export function holdsFailurePhrase(s) {
+  return CRASH.test(s) || NO_ANSWER.test(s) || /\bnone\b/i.test(s);
+}
+
+/** `out` with each string of `record` that holds a failure phrase replaced by a NUL. */
 export function ownWords(out, record) {
-  const strings = [...recordStrings(record)].sort((a, b) => b.length - a.length);
+  const strings = [...recordStrings(record)].filter(holdsFailurePhrase).sort((a, b) => b.length - a.length);
   let text = out;
   for (const s of strings) text = text.split(s).join("\u0000");
   return text;

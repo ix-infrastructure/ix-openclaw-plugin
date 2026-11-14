@@ -66,9 +66,9 @@ const ctx = { directory: workspace };
 
 // CRASH, NO_ANSWER and NONE (own-words.mjs) are only ever matched against
 // the tool's OWN words: never against ix's llm text, and in json mode only
-// after every string of ix's record is blanked out of the answer, since the
-// tools copy ix's prose (ix-explain's explanation and notes), names and paths
-// into it as is. Whatever ix wrote is ix's business.
+// after each string of ix's record that holds a failure phrase is blanked out
+// of the answer, since the tools copy ix's prose (ix-explain's explanation and
+// notes), names and paths into it as is. Whatever ix wrote is ix's business.
 
 test.before(() => {
   assert.ok(endpoint, "IX_LIVE_ENDPOINT must point at the throwaway backend (tests/real-ix/compose.yml)");

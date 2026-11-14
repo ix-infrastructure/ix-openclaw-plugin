@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { installFakeIx } from "./fake-ix.mjs";
 import { resetLlmVersionCache } from "../dist/runtime/llm.js";
 import * as ixExplain from "../dist/tools/ix-explain.js";
-import { CRASH, NO_ANSWER, NONE, ownWords, recordStrings } from "./real-ix/live/own-words.mjs";
+import { CRASH, NO_ANSWER, NONE, holdsFailurePhrase, ownWords, recordStrings } from "./real-ix/live/own-words.mjs";
 
 const ctx = { directory: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..") };
 
@@ -55,10 +55,36 @@ test("ix's prose, copied into the answer, is not the tool's words", async () => 
   assert.doesNotMatch(own, NO_ANSWER, own);
   assert.doesNotMatch(own, CRASH, own);
   assert.doesNotMatch(own, NONE, own);
-  // What the tool wrote around ix's values is still there to be checked.
-  assert.match(own, /^## ix-explain: \u0000/, own);
-  assert.match(own, /\*\*Kind:\*\* \u0000/, own);
+  // Only ix's strings that hold a failure phrase are blanked: its prose.
+  assert.ok(!own.includes(EXPLAIN.rendered.explanation), own);
+  // Plain values (name, kind, path) cannot make a pattern match, so they stay,
+  // and what the tool wrote around them is still there to be checked.
+  assert.match(own, /^## ix-explain: readCoreValue/, own);
+  assert.match(own, /\*\*Kind:\*\* function/, own);
   assert.match(own, /\*\*Graph:\*\* callers: 3/, own);
+});
+
+test("a short string in ix's record cannot split the tool's own failure words", () => {
+  // Fragments of "undefined", "not found", "No results" and "none". Blanking
+  // them would turn the tool's failure into text no pattern matches.
+  const record = { a: "de", b: "fin", c: "u", d: "ou", e: "Re", f: "on", g: "s" };
+  assert.match(ownWords("**Kind:** undefined", record), CRASH);
+  assert.match(ownWords("readCoreValue not found", record), NO_ANSWER);
+  assert.match(ownWords("No results", record), NO_ANSWER);
+  assert.match(ownWords("**callers:** none", record), NONE);
+  // A NaN the tool rendered, beside ix's plain values.
+  assert.match(ownWords("**callers:** NaN", { kind: "N", name: "a" }), CRASH);
+});
+
+test("only ix's strings that hold a failure phrase are blanked", () => {
+  assert.equal(holdsFailurePhrase("readCoreValue"), false);
+  assert.equal(holdsFailurePhrase("de"), false);
+  assert.equal(holdsFailurePhrase("Returns undefined"), true);
+  assert.equal(holdsFailurePhrase("callers are not found"), true);
+  assert.equal(holdsFailurePhrase("none"), true);
+  assert.equal(holdsFailurePhrase("nonexistent"), false);
+  // ix's own "none", copied after the tool's label, is ix's word.
+  assert.doesNotMatch(ownWords("**risk:** none", { risk: "none" }), NONE);
 });
 
 test("a failure the tool wrote itself is still caught", async () => {
@@ -73,8 +99,8 @@ test("a failure the tool wrote itself is still caught", async () => {
 });
 
 test("blanking cannot join text into a word that was not there", () => {
-  // Removing "X" outright would leave "undefined".
-  assert.doesNotMatch(ownWords("undeXfined", { a: "X" }), CRASH);
+  // Removing "X NaN" outright would leave "undefined".
+  assert.doesNotMatch(ownWords("undeX NaNfined", { a: "X NaN" }), CRASH);
   // The longer string goes first, so a shorter one inside it cannot split it.
   assert.equal(ownWords("say not found now", { a: "not", b: "say not found" }), "\u0000 now");
 });
