@@ -50,6 +50,7 @@ import * as ixRank from "../../../dist/tools/ix-rank.js";
 import * as ixStats from "../../../dist/tools/ix-stats.js";
 import * as ixSubsystems from "../../../dist/tools/ix-subsystems.js";
 import * as ixTrace from "../../../dist/tools/ix-trace.js";
+import { CRASH, NO_ANSWER, NONE, ownWords } from "./own-words.mjs";
 import { llmShape, readSteady } from "./steady.mjs";
 
 const endpoint = process.env.IX_LIVE_ENDPOINT;
@@ -63,15 +64,11 @@ const sandbox = realpathSync(mkdtempSync(path.join(tmpdir(), "real-ix-read-")));
 const workspace = path.join(sandbox, "ws");
 const ctx = { directory: workspace };
 
-// Only ever matched against the tool's OWN rendering (json mode), never
-// against ix's llm text, whose wording is ix's business.
-const CRASH = /\[object Object\]|undefined|NaN/;
-// What a tool says when ix could not answer, or when it read no answer out of
-// one: either way, wrong for a symbol the fixture project contains.
-const NO_ANSWER =
-  /not found|No matches found|No results|No trace paths found|Graph is empty|ix unavailable|could not answer|Ambiguous target|error code=/i;
-// A list the tool rendered as empty ("**callers:** none").
-const NONE = /\*\*[^*\n]+:\*\* none\b/i;
+// CRASH, NO_ANSWER and NONE (own-words.mjs) are only ever matched against
+// the tool's OWN words: never against ix's llm text, and in json mode only
+// after every string of ix's record is blanked out of the answer, since the
+// tools copy ix's prose (ix-explain's explanation and notes), names and paths
+// into it as is. Whatever ix wrote is ix's business.
 
 test.before(() => {
   assert.ok(endpoint, "IX_LIVE_ENDPOINT must point at the throwaway backend (tests/real-ix/compose.yml)");
@@ -172,12 +169,16 @@ function assertPassedThrough(pair, header, body = redactSecrets(pair.raw).trim()
   assert.equal(llmShape(pair.out), llmShape(expected), why);
 }
 
-/** json mode: the tool's own answer, about something that is there. */
-function assertAnswered(out, header, why = out) {
+/**
+ * json mode: the tool's own answer, about something that is there. `record`
+ * is ix's record for the question; its strings are not the tool's words.
+ */
+function assertAnswered(out, header, record, why = out) {
   assert.match(out, header, why);
-  assert.doesNotMatch(out, NO_ANSWER, why);
-  assert.doesNotMatch(out, NONE, why);
-  assert.doesNotMatch(out, CRASH, why);
+  const own = ownWords(out, record);
+  assert.doesNotMatch(own, NO_ANSWER, why);
+  assert.doesNotMatch(own, NONE, why);
+  assert.doesNotMatch(own, CRASH, why);
 }
 
 for (const mode of MODES) {
@@ -189,7 +190,7 @@ for (const mode of MODES) {
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-explain: readCoreValue/, why);
+    assertAnswered(out, /^## ix-explain: readCoreValue/, record, why);
     assert.equal(typeof record.resolvedTarget?.kind, "string", why);
     assert.ok(out.includes(`**Kind:** ${record.resolvedTarget.kind}`), why);
     // Three files call readCoreValue, so ix counts its callers; the tool reads
@@ -202,11 +203,25 @@ for (const mode of MODES) {
   test(`ix-stats reports the graph's totals (${mode.name})`, async () => {
     const pair = await readPair(ixStats, {}, mode, ["stats"]);
     if (!mode.json) {
+      // ix-stats takes ix's llm text only when it does not contain "total=0"
+      // anywhere (its empty-graph check is a substring test, not a parse), and
+      // otherwise renders the JSON record, so its "run `ix map`" line survives
+      // an empty graph. A mapped graph whose llm text holds some other
+      // total=0 (a kind with no nodes, say) takes that JSON path too. That is
+      // the tool's rule, not a failure, so the check follows it: the tool's
+      // JSON answer must then report the graph, not call it empty.
+      if (redactSecrets(pair.raw).trim().includes("total=0")) {
+        const { raw, record } = ixJson(["stats"]);
+        const why = `${pair.why}\nix's llm text contains "total=0", so the tool answered from JSON:\n--- ix stats --format json ---\n${raw}`;
+        assertAnswered(pair.out, /^## ix-stats\n\n\*\*Codebase:\*\*/, record, why);
+        assert.match(pair.out, /- Total nodes: [1-9]\d*/, why);
+        return;
+      }
       assertPassedThrough(pair, "## ix-stats");
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-stats/, why);
+    assertAnswered(out, /^## ix-stats/, record, why);
     assert.equal(typeof record.nodes?.total, "number", why);
     assert.ok(out.includes(`- Total nodes: ${record.nodes.total}`), why);
     const files = record.nodes.byKind?.find((entry) => entry.kind === "file")?.count;
@@ -228,7 +243,7 @@ for (const mode of MODES) {
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-rank: /, why);
+    assertAnswered(out, /^## ix-rank: /, record, why);
     assert.match(out, /readCoreValue/, why);
     assert.ok(Array.isArray(record.results) && record.results.length > 0, why);
     assert.equal(typeof record.results[0].name, "string", why);
@@ -243,7 +258,7 @@ for (const mode of MODES) {
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-trace: readCoreValue/, why);
+    assertAnswered(out, /^## ix-trace: readCoreValue/, record, why);
     // readUse1..readUse3 call readCoreValue: a trace that reached the graph names one.
     assert.match(out, /readUse[123]/, why);
     const visited = (record.upstream?.summary?.nodes_visited ?? 0) + (record.downstream?.summary?.nodes_visited ?? 0);
@@ -268,7 +283,7 @@ for (const mode of MODES) {
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-inventory: /, why);
+    assertAnswered(out, /^## ix-inventory: /, record, why);
     assert.doesNotMatch(out, /No functions found/, why);
     assert.match(out, /readCoreValue/, why);
     assert.ok(Array.isArray(record.byFile) && record.byFile.length > 0, why);
@@ -288,12 +303,13 @@ for (const mode of MODES) {
         assertPassedThrough(pair, "## ix-subsystems", staleLine ? `${staleLine}\n\n${body}` : body);
       } else {
         assert.match(pair.out, /^## ix-subsystems/, pair.why);
-        assert.doesNotMatch(pair.out, CRASH, pair.why);
+        // The tool rendered ix's JSON regions: their labels are ix's words.
+        assert.doesNotMatch(ownWords(pair.out, ixJson(["subsystems"]).record), CRASH, pair.why);
       }
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-subsystems/, why);
+    assertAnswered(out, /^## ix-subsystems/, record, why);
     assert.ok(Array.isArray(record.regions), why);
     // A project this small may form no region; then, and only then, the
     // tool may say so.
@@ -315,7 +331,7 @@ for (const mode of MODES) {
       assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
-    assertAnswered(pair.out, /^## ix-locate: readCoreValue/, pair.why);
+    assertAnswered(pair.out, /^## ix-locate: readCoreValue/, pair.record, pair.why);
     assert.match(pair.out, /read-core\.ts/, pair.why);
   });
 }
@@ -323,8 +339,8 @@ for (const mode of MODES) {
 test("ix-docs-tool gives context for a symbol the graph contains", async () => {
   // JSON only: ix-docs-tool has no llm path.
   const out = await run(ixDocsTool, { target: "readCoreValue", depth: "standard" }, { json: false });
-  assertAnswered(out, /^## Context: readCoreValue/);
   const { raw, record } = ixJson(["overview", "readCoreValue"]);
+  assertAnswered(out, /^## Context: readCoreValue/, record, `${out}\n--- ix overview ---\n${raw}`);
   // The tool renders nothing from its locate call, so Kind, read from this
   // record by name, is what proves it read ix's overview at all.
   assert.equal(typeof record.resolvedTarget?.kind, "string", raw);
