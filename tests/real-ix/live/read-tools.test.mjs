@@ -18,7 +18,8 @@
  *   through under their header. The check is that the tool's answer IS ix's
  *   own llm text (so the llm path was taken, and nothing was lost or added),
  *   and that the text names the fixture's symbol. Nothing is assumed about how
- *   ix words its llm records.
+ *   ix words its llm records. If ix never prints the same llm text twice (a
+ *   volatile value such as a timing), only the text's shape is compared.
  * - json: with IX_DISABLE_LLM_FORMAT=1 the tools parse `--format json` and
  *   render named fields, which is the path a drifted field name breaks: the
  *   tool then says "not found", "none" or "no results" about a symbol that is
@@ -49,7 +50,7 @@ import * as ixRank from "../../../dist/tools/ix-rank.js";
 import * as ixStats from "../../../dist/tools/ix-stats.js";
 import * as ixSubsystems from "../../../dist/tools/ix-subsystems.js";
 import * as ixTrace from "../../../dist/tools/ix-trace.js";
-import { readSteady } from "./steady.mjs";
+import { llmShape, readSteady } from "./steady.mjs";
 
 const endpoint = process.env.IX_LIVE_ENDPOINT;
 
@@ -71,9 +72,6 @@ const NO_ANSWER =
   /not found|No matches found|No results|No trace paths found|Graph is empty|ix unavailable|could not answer|Ambiguous target|error code=/i;
 // A list the tool rendered as empty ("**callers:** none").
 const NONE = /\*\*[^*\n]+:\*\* none\b/i;
-// The map-stale diagnostic ix-subsystems lifts out of ix's llm text (copied
-// from tools/ix-subsystems.ts).
-const STALE_DIAGNOSTIC = /^diagnostic(?:\s+(?:[^\s="]+=(?:"(?:[^"\\]|\\.)*"|[^\s"]*)|[^\s="]+))*?\s+code=map_stale(\s|$)/;
 
 test.before(() => {
   assert.ok(endpoint, "IX_LIVE_ENDPOINT must point at the throwaway backend (tests/real-ix/compose.yml)");
@@ -87,13 +85,21 @@ test.before(() => {
   delete process.env.FORCE_COLOR;
   delete process.env.IX_DISABLE_LLM_FORMAT;
 
-  // coreValue is called from three files; it is the only function with callers.
+  // readCoreValue is called from three files; it is the only function with
+  // callers. The sibling live files map their own projects into the same
+  // backend (coreValue, use1..use6 in src/core.ts and src/user*.ts), so every
+  // symbol and file name here is one they do not use: a lookup by name cannot
+  // become ambiguous, or count their callers, even if ix did not keep the
+  // workspaces apart.
   mkdirSync(path.join(workspace, "src"), { recursive: true });
-  writeFileSync(path.join(workspace, "src", "core.ts"), "export function coreValue(n: number): number { return n * 2; }\n");
+  writeFileSync(
+    path.join(workspace, "src", "read-core.ts"),
+    "export function readCoreValue(n: number): number { return n * 2; }\n"
+  );
   for (let i = 1; i <= 3; i++) {
     writeFileSync(
-      path.join(workspace, "src", `user${i}.ts`),
-      `import { coreValue } from "./core";\nexport function use${i}(): number { return coreValue(${i}); }\n`
+      path.join(workspace, "src", `read-user${i}.ts`),
+      `import { readCoreValue } from "./read-core";\nexport function readUse${i}(): number { return readCoreValue(${i}); }\n`
     );
   }
   execFileSync("git", ["init", "-q", "."], { cwd: workspace });
@@ -150,9 +156,20 @@ function readPair(tool, params, mode, cliArgs) {
  * llm mode: the tool's answer is ix's own llm text under the tool's header,
  * exactly as runtime/llm.ts hands it on (secrets redacted, trimmed). A tool
  * that fell back to JSON, or mangled the text, fails here with both in view.
+ *
+ * `body` is what the tool should print under the header, when that is not
+ * ix's text as is (ix-subsystems). If ix never printed the same llm text twice
+ * (`steady` false), its values may hold something volatile, such as a timing,
+ * so only the text's shape (records, keys, bare words) must match.
  */
-function assertPassedThrough(pair, header) {
-  assert.equal(pair.out, `${header}\n\n${redactSecrets(pair.raw).trim()}`, pair.why);
+function assertPassedThrough(pair, header, body = redactSecrets(pair.raw).trim()) {
+  const expected = `${header}\n\n${body}`;
+  if (pair.steady) {
+    assert.equal(pair.out, expected, pair.why);
+    return;
+  }
+  const why = `${pair.why}\nOnly the shape of the llm text was compared, as its values changed between reads.`;
+  assert.equal(llmShape(pair.out), llmShape(expected), why);
 }
 
 /** json mode: the tool's own answer, about something that is there. */
@@ -165,17 +182,17 @@ function assertAnswered(out, header, why = out) {
 
 for (const mode of MODES) {
   test(`ix-explain explains a symbol the graph contains (${mode.name})`, async () => {
-    const pair = await readPair(ixExplain, { symbol: "coreValue" }, mode, ["explain", "coreValue"]);
+    const pair = await readPair(ixExplain, { symbol: "readCoreValue" }, mode, ["explain", "readCoreValue"]);
     if (!mode.json) {
-      assertPassedThrough(pair, "## ix-explain: coreValue");
-      assert.match(pair.raw, /coreValue/, pair.why);
+      assertPassedThrough(pair, "## ix-explain: readCoreValue");
+      assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-explain: coreValue/, why);
+    assertAnswered(out, /^## ix-explain: readCoreValue/, why);
     assert.equal(typeof record.resolvedTarget?.kind, "string", why);
     assert.ok(out.includes(`**Kind:** ${record.resolvedTarget.kind}`), why);
-    // Three files call coreValue, so ix counts its callers; the tool reads
+    // Three files call readCoreValue, so ix counts its callers; the tool reads
     // that count by name and must show it.
     assert.equal(typeof record.facts?.callerCount, "number", why);
     assert.ok(record.facts.callerCount >= 3, why);
@@ -199,34 +216,36 @@ for (const mode of MODES) {
   });
 
   test(`ix-rank ranks the fixture's functions by callers (${mode.name})`, async () => {
-    // Four functions, so coreValue (the only one with callers) is in the top five.
+    // Four functions, so readCoreValue (the only one with callers) is in the
+    // top five. Even if ix ranked the sibling files' functions too, only three
+    // others there have callers.
     const params = { by: "callers", kind: "function", top: 5 };
     const cliArgs = ["rank", "--by", "callers", "--kind", "function", "--top", "5"];
     const pair = await readPair(ixRank, params, mode, cliArgs);
     if (!mode.json) {
       assertPassedThrough(pair, "## ix-rank: callers/function");
-      assert.match(pair.raw, /coreValue/, pair.why);
+      assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
     const { out, record, why } = pair;
     assertAnswered(out, /^## ix-rank: /, why);
-    assert.match(out, /coreValue/, why);
+    assert.match(out, /readCoreValue/, why);
     assert.ok(Array.isArray(record.results) && record.results.length > 0, why);
     assert.equal(typeof record.results[0].name, "string", why);
     assert.ok(out.includes(`| 1 | \`${record.results[0].name}\` |`), why);
   });
 
   test(`ix-trace traces a symbol to its callers (${mode.name})`, async () => {
-    const pair = await readPair(ixTrace, { symbol: "coreValue" }, mode, ["trace", "coreValue"]);
+    const pair = await readPair(ixTrace, { symbol: "readCoreValue" }, mode, ["trace", "readCoreValue"]);
     if (!mode.json) {
-      assertPassedThrough(pair, "## ix-trace: coreValue");
-      assert.match(pair.raw, /coreValue/, pair.why);
+      assertPassedThrough(pair, "## ix-trace: readCoreValue");
+      assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
     const { out, record, why } = pair;
-    assertAnswered(out, /^## ix-trace: coreValue/, why);
-    // use1..use3 call coreValue: a trace that reached the graph names one.
-    assert.match(out, /use[123]/, why);
+    assertAnswered(out, /^## ix-trace: readCoreValue/, why);
+    // readUse1..readUse3 call readCoreValue: a trace that reached the graph names one.
+    assert.match(out, /readUse[123]/, why);
     const visited = (record.upstream?.summary?.nodes_visited ?? 0) + (record.downstream?.summary?.nodes_visited ?? 0);
     assert.ok(visited > 0, why);
   });
@@ -235,23 +254,23 @@ for (const mode of MODES) {
     // The directory as ix itself stores the file, absolute or relative, so
     // the scope is a prefix of a path ix holds however it keeps paths, rather
     // than a guess such as "src" that only matches one of the two.
-    const located = ixJson(["locate", "coreValue"]);
+    const located = ixJson(["locate", "readCoreValue"]);
     const filePath = located.record.resolvedTarget?.path;
     assert.equal(typeof filePath, "string", located.raw);
-    assert.match(filePath, /src\/core\.ts$/, located.raw);
+    assert.match(filePath, /src\/read-core\.ts$/, located.raw);
     const dir = path.posix.dirname(filePath);
 
     const cliArgs = ["inventory", "--kind", "function", "--path", dir];
     const pair = await readPair(ixInventory, { path: dir, kind: "function" }, mode, cliArgs);
     if (!mode.json) {
       assertPassedThrough(pair, `## ix-inventory: ${dir}`);
-      assert.match(pair.raw, /coreValue/, pair.why);
+      assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
     const { out, record, why } = pair;
     assertAnswered(out, /^## ix-inventory: /, why);
     assert.doesNotMatch(out, /No functions found/, why);
-    assert.match(out, /coreValue/, why);
+    assert.match(out, /readCoreValue/, why);
     assert.ok(Array.isArray(record.byFile) && record.byFile.length > 0, why);
     assert.equal(typeof record.byFile[0].path, "string", why);
     assert.ok(out.includes(`\`${record.byFile[0].path}\``), why);
@@ -263,15 +282,10 @@ for (const mode of MODES) {
       // ix-subsystems lifts a map-stale diagnostic out of ix's text into a
       // line of its own under the header; the rest is passed through as is.
       // Text that was nothing but that diagnostic falls through to JSON.
-      const text = redactSecrets(pair.raw).trim();
-      const lines = text.split("\n");
-      const stale = lines.some((line) => STALE_DIAGNOSTIC.test(line.trim()));
-      const body = stale ? lines.filter((line) => !STALE_DIAGNOSTIC.test(line.trim())).join("\n").trim() : text;
-      if (!stale) {
-        assertPassedThrough(pair, "## ix-subsystems");
-      } else if (body) {
-        assert.ok(pair.out.startsWith("## ix-subsystems\n\n"), pair.why);
-        assert.ok(pair.out.endsWith(`\n\n${body}`), pair.why);
+      // The split is the tool's own (exported), not a copy that could drift.
+      const { body, staleLine } = ixSubsystems.splitStaleDiagnostic(redactSecrets(pair.raw).trim());
+      if (body) {
+        assertPassedThrough(pair, "## ix-subsystems", staleLine ? `${staleLine}\n\n${body}` : body);
       } else {
         assert.match(pair.out, /^## ix-subsystems/, pair.why);
         assert.doesNotMatch(pair.out, CRASH, pair.why);
@@ -294,23 +308,23 @@ for (const mode of MODES) {
 
   test(`ix-locate finds a symbol's text in the fixture (${mode.name})`, async () => {
     // ix-locate searches text: `ix text`, not `ix locate`.
-    const cliArgs = ["text", "coreValue", "--limit", "10"];
-    const pair = await readPair(ixLocate, { pattern: "coreValue", limit: 10 }, mode, cliArgs);
+    const cliArgs = ["text", "readCoreValue", "--limit", "10"];
+    const pair = await readPair(ixLocate, { pattern: "readCoreValue", limit: 10 }, mode, cliArgs);
     if (!mode.json) {
-      assertPassedThrough(pair, "## ix-locate: coreValue");
-      assert.match(pair.raw, /coreValue/, pair.why);
+      assertPassedThrough(pair, "## ix-locate: readCoreValue");
+      assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
-    assertAnswered(pair.out, /^## ix-locate: coreValue/, pair.why);
-    assert.match(pair.out, /core\.ts/, pair.why);
+    assertAnswered(pair.out, /^## ix-locate: readCoreValue/, pair.why);
+    assert.match(pair.out, /read-core\.ts/, pair.why);
   });
 }
 
 test("ix-docs-tool gives context for a symbol the graph contains", async () => {
   // JSON only: ix-docs-tool has no llm path.
-  const out = await run(ixDocsTool, { target: "coreValue", depth: "standard" }, { json: false });
-  assertAnswered(out, /^## Context: coreValue/);
-  const { raw, record } = ixJson(["overview", "coreValue"]);
+  const out = await run(ixDocsTool, { target: "readCoreValue", depth: "standard" }, { json: false });
+  assertAnswered(out, /^## Context: readCoreValue/);
+  const { raw, record } = ixJson(["overview", "readCoreValue"]);
   // The tool renders nothing from its locate call, so Kind, read from this
   // record by name, is what proves it read ix's overview at all.
   assert.equal(typeof record.resolvedTarget?.kind, "string", raw);

@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { readSteady, STEADY_TRIES } from "./real-ix/live/steady.mjs";
+import { llmShape, readSteady, STEADY_TRIES } from "./real-ix/live/steady.mjs";
 
 /** A CLI whose successive reads print `raws` in turn (the last one repeats). */
 function fakeCli(raws) {
@@ -80,4 +80,21 @@ test("the number of tries can be set", async () => {
   assert.equal(pair.steady, false);
   assert.equal(tool.runs(), 2);
   assert.match(pair.why, /each of 3 reads/);
+});
+
+// llmShape: what the live llm checks compare when ix never printed the same
+// llm text twice, so a volatile value (a timing, an age) cannot fail them.
+
+test("llmShape: the same records with other values have the same shape", () => {
+  const a = '## ix-stats\n\nstats nodes=98 edges=354 took_ms=12\nnote message="as of 3s ago" ok';
+  const b = '## ix-stats\n\nstats nodes=99 edges=360 took_ms=7\nnote message="as of \\"5s\\" ago" ok';
+  assert.equal(llmShape(a), llmShape(b));
+  assert.equal(llmShape(a), "## ix-stats\n\nstats nodes=… edges=… took_ms=…\nnote message=… ok");
+});
+
+test("llmShape: a dropped record, a renamed key or a JSON fallback changes the shape", () => {
+  const llm = "## ix-rank\n\nrank name=a callers=3\nrank name=b callers=0";
+  assert.notEqual(llmShape(llm), llmShape("## ix-rank\n\nrank name=a callers=3"));
+  assert.notEqual(llmShape(llm), llmShape("## ix-rank\n\nrank name=a callers=3\nrank label=b callers=0"));
+  assert.notEqual(llmShape(llm), llmShape("## ix-rank\n\n| # | Name | Callers |\n| 1 | `a` | 3 |"));
 });

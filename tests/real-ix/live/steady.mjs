@@ -44,3 +44,19 @@ export async function readSteady(runTool, readCli, { label, tries = STEADY_TRIES
     if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
 }
+
+/**
+ * The shape of ix `--format llm` text: each record's kind, keys and bare
+ * words, with every `key=value` value (quoted or not) replaced by `…`.
+ *
+ * Used only when the CLI never printed the same llm text twice (a pair that
+ * is not steady): then the values may hold something volatile, such as a
+ * timing, and only the shape can be compared. A tool that fell back to JSON,
+ * or dropped or added a record, still changes the shape.
+ */
+export function llmShape(text) {
+  return text
+    .split("\n")
+    .map((line) => line.trim().replace(/([^\s="]+)=(?:"(?:[^"\\]|\\.)*"|[^\s"]*)/g, "$1=…"))
+    .join("\n");
+}
