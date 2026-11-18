@@ -132,8 +132,11 @@ const MESSAGE_MAP_REV = /\(map rev (\d+), (\d+) files?\)/;
 /**
  * Pull `diagnostic code=map_stale` records out of `ix subsystems --format llm`
  * text. Returns the remaining records and, when there was one, the stale line.
+ *
+ * Exported so the live test (tests/real-ix/live/read-tools.test.mjs) checks
+ * the tool's llm answer against this split rather than a copy of it.
  */
-function splitStaleDiagnostic(text: string): { body: string; staleLine: string | null } {
+export function splitStaleDiagnostic(text: string): { body: string; staleLine: string | null } {
   let staleLine: string | null = null;
   const kept: string[] = [];
   for (const line of text.split("\n")) {

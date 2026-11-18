@@ -252,3 +252,17 @@ test("the stale line does not promise a background refresh", withFake(async (ix)
   const out = await ixSubsystems.execute({}, context());
   assert.doesNotMatch(out, /background refresh/);
 }));
+
+// The live test (tests/real-ix/live/read-tools.test.mjs) builds the llm answer
+// it expects from splitStaleDiagnostic instead of a copy of its regex, so the
+// export must be the very split the tool uses.
+test("splitStaleDiagnostic is the split execute uses on the llm answer", withFake(async (ix) => {
+  for (const llm of [LLM_RECORDS, `${STALE_DIAGNOSTIC}\n${LLM_RECORDS}`, `${LLM_RECORDS}\n${STALE_DIAGNOSTIC}`]) {
+    ix.setSubsystems({ llm, json: FRESH_JSON });
+    const out = await ixSubsystems.execute({}, context());
+    const { body, staleLine } = ixSubsystems.splitStaleDiagnostic(llm);
+    assert.equal(out, staleLine ? `## ix-subsystems\n\n${staleLine}\n\n${body}` : `## ix-subsystems\n\n${body}`);
+  }
+  assert.deepEqual(ixSubsystems.splitStaleDiagnostic(LLM_RECORDS), { body: LLM_RECORDS, staleLine: null });
+  assert.deepEqual(ixSubsystems.splitStaleDiagnostic(STALE_DIAGNOSTIC), { body: "", staleLine: STALE_LINE_AT });
+}));
