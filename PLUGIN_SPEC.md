@@ -1,7 +1,26 @@
 # ix-openclaw-plugin — Plugin Specification
 
+> **Superseded — historical record.** This is the May 2026 plan; it does not describe the plugin as built.
+> See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the plugin is built today.
+
+What the plugin does instead of this plan:
+
+- Every Ix call goes through the `ix` CLI. There is no Ix Core Runtime client,
+  no `/v2/...` HTTP route, no MCP server and no direct backend call.
+- Hooks are typed `api.on(...)` handlers in `plugins/ix-plugin.ts`, not folder
+  hooks: session briefing, a pre-edit gate that asks the user to approve a
+  risky edit rather than blocking it, and a guarded root map after edits and at
+  session end. There is no search interception.
+- The manifest is `openclaw.plugin.json` and declares 17 tools and the
+  `skills/` directory. There is no `commands/` directory.
+- No agent prompts ship: OpenClaw loads none from a plugin. `AGENTS.md` is the
+  contributor guide for this repo, not an installed instruction file.
+
+---
+
+
 Version: 2.0.0-draft  
-Root spec: [IX_PLUGIN_OVERHAUL_SPEC.md](../IX_PLUGIN_OVERHAUL_SPEC.md)  
+Root spec: the shared plugin overhaul spec (kept outside this repository)  
 Status: **Active target — platform confirmed. Capability survey next. Risk: medium until runtime and plugin API are verified.**
 
 ---
@@ -201,7 +220,7 @@ ix-openclaw-plugin/
 
 ## 11. Shared Ix Core Runtime requirements
 
-See [IX_PLUGIN_OVERHAUL_SPEC.md](../IX_PLUGIN_OVERHAUL_SPEC.md). Plugin-specific notes:
+See the shared plugin overhaul spec (kept outside this repository). Plugin-specific notes:
 
 - `caller.surface = "openclaw-plugin"` in all API calls.
 - Runtime client must handle `IX_UPSTREAM_UNAVAILABLE` gracefully; tools must fail non-fatally.

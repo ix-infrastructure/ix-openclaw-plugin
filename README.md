@@ -102,18 +102,6 @@ High-level cognitive skills — each one infers intent, orchestrates multiple gr
 
 All skills auto-disable when `ix` is not available (via `requires.bins` gating).
 
-## Agents
-
-Autonomous multi-step agents for complex tasks:
-
-| Agent | Purpose |
-|-------|---------|
-| `ix-explorer` | General-purpose graph exploration, open-ended questions |
-| `ix-system-explorer` | Full architectural model of a codebase or region |
-| `ix-bug-investigator` | Autonomous investigation from symptom to root cause candidates |
-| `ix-safe-refactor-planner` | Blast radius + safe change sequencing for refactors |
-| `ix-architecture-auditor` | Full structural health report with ranked improvements |
-
 ## Automatic hooks
 
 All of them are typed plugin hooks (`api.on(...)` in `plugins/ix-plugin.ts`); the
@@ -165,6 +153,13 @@ the edit hooks work either way.
 ```
 openclaw plugins uninstall ix-memory
 ```
+
+## Contributing
+
+[ARCHITECTURE.md](./ARCHITECTURE.md) describes how the plugin is built: the
+entry point, the hooks, how a tool call reaches `ix`, and where state lives.
+[AGENTS.md](./AGENTS.md) holds the working rules for agents editing this repo;
+it is not installed into your agent.
 
 ## License
 

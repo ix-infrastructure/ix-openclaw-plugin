@@ -1,5 +1,24 @@
 # OpenClaw Platform Survey
 
+> **Superseded — historical record.** This survey of OpenClaw (2026-05-19) informed the plan in `PLUGIN_SPEC.md`; its "Current Implementation Issues" and next steps are resolved or obsolete.
+> See [ARCHITECTURE.md](./ARCHITECTURE.md) for how the plugin is built today.
+
+What the plugin does instead of this plan:
+
+- Every Ix call goes through the `ix` CLI. There is no Ix Core Runtime client,
+  no `/v2/...` HTTP route, no MCP server and no direct backend call.
+- Hooks are typed `api.on(...)` handlers in `plugins/ix-plugin.ts`, not folder
+  hooks: session briefing, a pre-edit gate that asks the user to approve a
+  risky edit rather than blocking it, and a guarded root map after edits and at
+  session end. There is no search interception.
+- The manifest is `openclaw.plugin.json` and declares 17 tools and the
+  `skills/` directory. There is no `commands/` directory.
+- No agent prompts ship: OpenClaw loads none from a plugin. `AGENTS.md` is the
+  contributor guide for this repo, not an installed instruction file.
+
+---
+
+
 **Date:** 2026-05-19  
 **Method:** Documentation survey — https://docs.openclaw.ai/, https://github.com/openclaw/openclaw  
 **Status:** Complete — all 8 open questions from PLUGIN_SPEC.md section 17 answered.

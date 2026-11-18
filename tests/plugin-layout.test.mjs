@@ -20,14 +20,6 @@ const skillNames = [
   "ix-help",
 ];
 
-const agentNames = [
-  "ix-explorer",
-  "ix-system-explorer",
-  "ix-bug-investigator",
-  "ix-safe-refactor-planner",
-  "ix-architecture-auditor",
-];
-
 test("manifest declares the full plugin surface", () => {
   const manifest = JSON.parse(
     fs.readFileSync(path.join(rootDir, "openclaw.plugin.json"), "utf8")
@@ -47,21 +39,19 @@ test("package metadata points OpenClaw at the built plugin entry", () => {
   assert.equal(pkg.openclaw?.extensions?.[0], "./dist/plugins/ix-plugin.js");
   assert.equal(pkg.scripts?.test, "npm run build && node --test tests/*.test.mjs");
 
-  for (const entry of ["dist", "agents", "skills", "install.sh", "install.ps1"]) {
+  for (const entry of ["dist", "skills", "install.sh", "install.ps1"]) {
     assert.ok(pkg.files.includes(entry), `${entry} should be published`);
   }
 });
 
-test("skills, agents, and installers exist; folder hooks do not", () => {
+test("skills and installers exist; folder hooks and agent prompts do not", () => {
   for (const skill of skillNames) {
     assert.ok(fs.existsSync(path.join(rootDir, "skills", skill, "SKILL.md")), skill);
   }
 
-  for (const agent of agentNames) {
-    assert.ok(fs.existsSync(path.join(rootDir, "agents", `${agent}.md`)), agent);
-  }
-
   assert.equal(fs.existsSync(path.join(rootDir, "hooks")), false);
+  // OpenClaw loads no agent prompts from a plugin (see tests/docs-layout.test.mjs).
+  assert.equal(fs.existsSync(path.join(rootDir, "agents")), false);
 
   assert.ok(fs.existsSync(path.join(rootDir, "install.sh")));
   assert.ok(fs.existsSync(path.join(rootDir, "install.ps1")));

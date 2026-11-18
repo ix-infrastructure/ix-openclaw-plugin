@@ -302,7 +302,7 @@ test("stored rows say they cannot be narrowed to a path, and that detection rows
 // against a real ix; `--format llm` is not checked anywhere, so the docs must
 // not depend on it.
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-for (const doc of ["AGENTS.md", "agents/ix-architecture-auditor.md", "skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
+for (const doc of ["AGENTS.md", "skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
   test(`${doc} reads smells with \`ix smells --list --format json\` and shows no llm form`, () => {
     const text = readFileSync(path.join(projectRoot, doc), "utf8");
     const commands = text.split("\n").filter((line) => /ix smells\b/.test(line) && /--format/.test(line));
@@ -316,7 +316,7 @@ for (const doc of ["AGENTS.md", "agents/ix-architecture-auditor.md", "skills/ix-
 // Stored rows carry no file. Where a doc narrows smells to a path, it must do
 // so on detection rows (which name the file), only when the user asks, and say
 // that detection writes.
-for (const doc of ["agents/ix-architecture-auditor.md", "skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
+for (const doc of ["skills/ix-architecture/SKILL.md", "skills/ix-docs/SKILL.md"]) {
   test(`${doc} narrows smells to a path only on detection rows the user asked for`, () => {
     const text = readFileSync(path.join(projectRoot, doc), "utf8");
     const detection = text.indexOf("ix smells --format json");

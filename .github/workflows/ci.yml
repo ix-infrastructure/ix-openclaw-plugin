@@ -20,8 +20,8 @@ jobs:
   # the test script then runs Node's built-in runner over the ESM .test.mjs
   # files (which import the compiled dist/). Tests stub global fetch, so this is
   # fully offline — no backend or network needed. node 22 is the shipped runtime
-  # (package.json engines: >=22.19.0); no OS matrix is required for a pure-JS
-  # package. NOTE: the package itself ships no native code, but the dev tree
+  # (package.json engines: >=22.19.0); the Windows launch path has its own
+  # job below. NOTE: the package itself ships no native code, but the dev tree
   # does -- `npm ci` runs postinstall scripts for koffi and the openclaw
   # platform binaries, so this job is not script-free.
   test:
@@ -49,6 +49,30 @@ jobs:
         run: npm run build
       - name: Test (node --test)
         run: node --test tests/*.test.mjs
+
+  # ── Windows launch ───────────────────────────────────────────────────────
+  # How the tools start `ix` on Windows (tools/ix-command.ts): the installer's
+  # ix.cmd is a two-level launcher, so this runs tests/windows-launch.test.mjs
+  # against a fake one through real cmd.exe. The rest of the suite drives a
+  # POSIX shell fake and stays on the ubuntu job. --ignore-scripts: the build
+  # and these tests need no native postinstall from the dev tree.
+  windows:
+    name: Windows launch
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - name: Install
+        run: npm ci --ignore-scripts
+      - name: Build
+        run: npm run build
+      - name: Launch tests (node --test)
+        run: node --test tests/windows-launch.test.mjs
 
   # ── Shell script lint ────────────────────────────────────────────────────
   # The repo ships installer + local-test shell scripts. shellcheck is
@@ -159,14 +183,16 @@ jobs:
   ci-success:
     name: CI Passed
     if: always()
-    needs: [test, shellcheck, real-ix]
+    needs: [test, windows, shellcheck, real-ix]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs succeeded
         run: |
           echo "test=${{ needs.test.result }}"
+          echo "windows=${{ needs.windows.result }}"
           echo "shellcheck=${{ needs.shellcheck.result }}"
           echo "real-ix=${{ needs.real-ix.result }}"
           [ "${{ needs.test.result }}" = "success" ] \
+            && [ "${{ needs.windows.result }}" = "success" ] \
             && [ "${{ needs.shellcheck.result }}" = "success" ] \
             && [ "${{ needs.real-ix.result }}" = "success" ]

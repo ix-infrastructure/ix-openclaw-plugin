@@ -1,5 +1,11 @@
 # Ix Memory — Agent Operating Rules
 
+> This is the contributor guide for agents working **in this repository**
+> (OpenClaw reads `AGENTS.md` from an agent's workspace, so it applies when the
+> workspace is this repo). It is not part of the installed plugin: the plugin
+> delivers its behaviour through its tools, hooks and `skills/`. See
+> [ARCHITECTURE.md](./ARCHITECTURE.md) for how the plugin is built.
+
 ---
 
 ## Reasoning Strategy
@@ -58,18 +64,6 @@ When answering a question about the codebase:
 
 ---
 
-## Agent Reference
-
-| Agent | Purpose |
-|---|---|
-| `ix-explorer` | General-purpose exploration, open-ended questions |
-| `ix-system-explorer` | Full architectural mental model of a codebase or region |
-| `ix-bug-investigator` | Autonomous root cause analysis from symptom to candidates |
-| `ix-safe-refactor-planner` | Blast radius + safe change sequencing for refactors |
-| `ix-architecture-auditor` | Full structural health report with ranked improvements |
-
----
-
 ## Repo Structure
 
 ```
@@ -80,13 +74,11 @@ skills/
   ix-plan/SKILL.md           — change plan (graph + optional read)
   ix-debug/SKILL.md          — root cause analysis (graph + targeted read)
   ix-architecture/SKILL.md   — design health (graph only)
+  ix-docs/SKILL.md           — narrative-first documentation
+  ix-help/SKILL.md           — routes to the right skill or tool
 
-agents/
-  ix-explorer.md             — general exploration
-  ix-system-explorer.md      — architectural model building
-  ix-bug-investigator.md     — autonomous debugging
-  ix-safe-refactor-planner.md — refactor safety planning
-  ix-architecture-auditor.md — structural health audit
+tools/                       — one module per Ix tool; each runs the ix CLI
+runtime/                     — auto-map guard, briefing cap, write-tool paths, llm fast-path
 
 plugins/ix-plugin.ts         — entry point: 17 tools + typed hooks (api.on):
                                before_prompt_build (briefing, Pro),
