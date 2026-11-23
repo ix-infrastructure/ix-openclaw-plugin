@@ -12,10 +12,13 @@
  * dist chunks rather than by their hashed file names, which change with every
  * OpenClaw release.
  *
- * OpenClaw refuses to start on a Node whose bundled SQLite has the WAL-reset
- * bug (it needs Node >= 22.22.3 / 24.15 / 25.9); there the loader cannot even
- * be imported, so these tests skip and say why. CI's `node-version: "22"`
- * resolves to a fixed release.
+ * OpenClaw does not load on every Node. Up to 2026.8 it refuses to start on a
+ * Node whose bundled SQLite has the WAL-reset bug (it needs Node >= 22.22.3 /
+ * 24.15 / 25.9). From 2026.11 it needs Node >= 24.16 and its bundle does not
+ * parse on Node 22 (a SyntaxError on a `using` declaration). On such a Node
+ * the loader cannot even be imported, so a local run skips these tests and
+ * says why. In CI they never skip: the test job runs Node 24, and a host that
+ * fails to load there is a failure, not a skip.
  *
  * HOME and OpenClaw's state/config paths point at a throwaway directory, and
  * `ix` is the strict fake, so nothing here touches real config or a backend.
@@ -58,7 +61,10 @@ try {
   };
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (!/SQLite support is unavailable or unsafe in this Node runtime/.test(message)) throw error;
+  const nodeTooOld =
+    /SQLite support is unavailable or unsafe in this Node runtime/.test(message) ||
+    error instanceof SyntaxError;
+  if (!nodeTooOld || process.env.CI) throw error;
   unsupported = `OpenClaw cannot run on Node ${process.versions.node}: ${message.split(". ")[0]}`;
 }
 
