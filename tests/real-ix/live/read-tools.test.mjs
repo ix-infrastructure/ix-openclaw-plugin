@@ -158,15 +158,24 @@ function readPair(tool, params, mode, cliArgs) {
  * ix's text as is (ix-subsystems). If ix never printed the same llm text twice
  * (`steady` false), its values may hold something volatile, such as a timing,
  * so only the text's shape (records, keys, bare words) must match.
+ *
+ * `anyOrder` compares the lines as a set, for a command that prints the same
+ * records in a different order on each call.
  */
-function assertPassedThrough(pair, header, body = redactSecrets(pair.raw).trim()) {
+function assertPassedThrough(pair, header, body = redactSecrets(pair.raw).trim(), { anyOrder = false } = {}) {
   const expected = `${header}\n\n${body}`;
+  const order = anyOrder ? sortedLines : (text) => text;
   if (pair.steady) {
-    assert.equal(pair.out, expected, pair.why);
+    assert.equal(order(pair.out), order(expected), pair.why);
     return;
   }
   const why = `${pair.why}\nOnly the shape of the llm text was compared, as its values changed between reads.`;
-  assert.equal(llmShape(pair.out), llmShape(expected), why);
+  assert.equal(order(llmShape(pair.out)), order(llmShape(expected)), why);
+}
+
+/** The lines of `text`, sorted, for output whose line order is not fixed. */
+function sortedLines(text) {
+  return text.split("\n").sort().join("\n");
 }
 
 /**
@@ -327,7 +336,10 @@ for (const mode of MODES) {
     const cliArgs = ["text", "readCoreValue", "--limit", "10"];
     const pair = await readPair(ixLocate, { pattern: "readCoreValue", limit: 10 }, mode, cliArgs);
     if (!mode.json) {
-      assertPassedThrough(pair, "## ix-locate: readCoreValue");
+      // `ix text` lists files in the order ripgrep's parallel search finished
+      // them, so the tool's call and the CLI's own print the same matches in a
+      // different order.
+      assertPassedThrough(pair, "## ix-locate: readCoreValue", undefined, { anyOrder: true });
       assert.match(pair.raw, /readCoreValue/, pair.why);
       return;
     }
